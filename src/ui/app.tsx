@@ -8,6 +8,7 @@ import { demoId } from '../data/local.ts'
 import type { CourtLink, Tournament, TournamentSummary } from '../data/types.ts'
 import { lastLiveTournament } from '../data/viewer.ts'
 import { Dashboard, ResultsPage, SettingsPage } from './admin.tsx'
+import { useTournamentColors } from './colors.ts'
 import { adminPath, Badge, Brand, dateLabel, Empty, Heading, Notice, progress, publicPath, useTournament } from './common.tsx'
 import { GamePanel } from './game-panel.tsx'
 import { CourtReportPage, LivePage, PublicHeader, ReportPage, TVPage } from './public.tsx'
@@ -194,6 +195,7 @@ window.addEventListener('appinstalled', () => { installPrompt = null })
 function AdminRoute({ theme, session }: { theme: Theme; session?: Session | null }) {
   const { id = '' } = useParams()
   const { tournament, failure, offline, linked, offset, refresh } = useTournament(id, true)
+  useTournamentColors(tournament?.colors)
   const shell = (body: ReactNode) => <Shell theme={theme} session={session} tournament={tournament?.admin ? tournament : undefined}>{body}</Shell>
   if (!tournament) return shell(failure || offline ? <Notice>{failure || 'Offline. In diesem Browser ist kein synchronisierter Turnierstand gespeichert.'}</Notice> : <Loading/>)
   if (!tournament.admin && !offline) return shell(<Notice>Dieses Konto hat keine Verwaltungsrechte für das Turnier.</Notice>)
@@ -268,6 +270,7 @@ function CourtAssignmentRoute({ station }: { station: string }) {
 }
 function PublicTournament({ id, screen, court }: { id: string; screen?: string; court?: { station: string; field: string; expires: string } }) {
   const { tournament, failure, offline, linked, offset, refresh } = useTournament(id, false)
+  useTournamentColors(tournament?.colors)
   if (screen === 'tv' && tournament) return <TVPage tournament={tournament} offset={offset} offline={offline}/>
   return <div className="public-shell">
     {tournament ? <PublicHeader tournament={tournament}/> : <header className="public-header"><div><Brand to="/start"/></div></header>}

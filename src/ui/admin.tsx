@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Activity, ArrowDownToLine, ArrowRight, ArrowUpRight, CalendarRange, ChevronRight, ClipboardCheck, Clock3, Copy, Flag, LayoutGrid, Monitor, QrCode, Radio, Settings2, Trophy, Users, Volleyball } from 'lucide-react'
 import { Link, useNavigate } from 'react-router'
-import { audit, control, errorText } from '../data/client.ts'
+import { audit, control, errorText, saveColors } from '../data/client.ts'
 import type { AuditEntry, ControlAction, Tournament } from '../data/types.ts'
 import { active, adminPath, Badge, csvCell, download, Empty, EventDate, gameOf, Heading, LiveLink, Notice, ordered, progress, publicPath, stageName, upcoming, useNow } from './common.tsx'
 import { delayMinutes, MatchTile, ScheduleTable } from './schedule.tsx'
+import { defaultColors } from './colors.ts'
 
 export function Dashboard({ tournament, offline, offset, refresh }: { tournament: Tournament; offline: boolean; offset: number; refresh: () => unknown }) {
   const base = adminPath(tournament.id)
@@ -105,6 +106,42 @@ export function ResultsPage({ tournament }: { tournament: Tournament }) {
   </>
 }
 
+function ColorSettings({ tournament, offline, refresh }: { tournament: Tournament; offline: boolean; refresh: () => unknown }) {
+  const current = tournament.colors ?? defaultColors
+  const [colors, setColors] = useState(current)
+  const [busy, setBusy] = useState(false)
+  const [failure, setFailure] = useState('')
+  const changed = colors.primary !== current.primary || colors.background !== current.background
+
+  async function save() {
+    setBusy(true)
+    setFailure('')
+    try {
+      await saveColors(tournament.id, tournament.revision, colors)
+      await refresh()
+    } catch (error) { setFailure(errorText(error)) }
+    finally { setBusy(false) }
+  }
+
+  return <section className="card">
+    <div className="card-heading"><div><h2>Turnierfarben</h2><p>Gilt für Verwaltung, Live-Ansicht, Schiedsgericht und Hallenbildschirm.</p></div></div>
+    <form className="card-body form-stack" onSubmit={event => { event.preventDefault(); void save() }}>
+      <div className="button-row color-fields">
+        <label>Hauptfarbe<input type="color" value={colors.primary} disabled={busy}
+          onChange={event => setColors({ ...colors, primary: event.target.value })}/></label>
+        <label>Hintergrundfarbe<input type="color" value={colors.background} disabled={busy}
+          onChange={event => setColors({ ...colors, background: event.target.value })}/></label>
+      </div>
+      <p className="hint">Brackit passt die Helligkeit für gut lesbare Kontraste im Hell- und Dunkelmodus an.</p>
+      {failure && <Notice>{failure}</Notice>}
+      <div className="button-row">
+        <button className="button primary" disabled={offline || busy || !changed}>Farben speichern</button>
+        <button type="button" className="button secondary" disabled={busy} onClick={() => setColors(defaultColors)}>Standardfarben wählen</button>
+      </div>
+    </form>
+  </section>
+}
+
 export function SettingsPage({ tournament, offline, refresh }: { tournament: Tournament; offline: boolean; refresh: () => unknown }) {
   const navigate = useNavigate()
   const [entries, setEntries] = useState<AuditEntry[] | null>(null)
@@ -125,6 +162,8 @@ export function SettingsPage({ tournament, offline, refresh }: { tournament: Tou
   }
   return <>
     <Heading eyebrow="Verwaltung" title="Turniereinstellungen" subtitle={`Konfiguration Version ${tournament.configurationVersion}`}/>
+    <ColorSettings key={`${tournament.id}:${tournament.colors?.primary}:${tournament.colors?.background}`}
+      tournament={tournament} offline={offline} refresh={refresh}/>
     <section className="card"><div className="card-heading"><div><h2>Konfiguration</h2><p>{config.name} · {config.sport && `${config.sport} · `}{config.teams.length} Teams · {config.stages.length} Phasen</p></div></div>
       <div className="card-body settings-body">
         <div className="definition-grid">
@@ -152,6 +191,7 @@ export function SettingsPage({ tournament, offline, refresh }: { tournament: Tou
   </>
 }
 const auditNames: Record<string, string> = {
+  colors: 'Turnierfarben geändert',
   plan: 'Spielplan gespeichert', publish: 'Turnier veröffentlicht', release: 'Phase freigegeben', archive: 'Archiviert',
   start: 'Spiel gestartet', pause: 'Pausiert', resume: 'Fortgesetzt', regular: 'Reguläre Spielzeit beendet',
   live: 'Live-Stand geändert', submit: 'Ergebnis eingereicht', confirm: 'Bestätigt', reject: 'Zurückgewiesen',

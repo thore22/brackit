@@ -4,6 +4,7 @@ import { tournamentTables } from '../engine/standings.ts'
 import { volleyball } from '../engine/template.ts'
 import type { Match, Plan, TournamentConfig } from '../engine/model.ts'
 import { validateSchedule } from '../engine/validate.ts'
+import type { TournamentColors } from './types.ts'
 import { final, type AuditEntry, type ControlAction, type CourtActivation, type CourtStation, type GameCommand, type Invitation, type Tournament, type TournamentSummary } from './types.ts'
 
 const prefix = 'turnierleitung.local.'
@@ -81,11 +82,19 @@ export function localSave(id: string | null, expected: number | null, config: To
       if (previous.tournament.state !== 'draft') throw new Error('Die Konfiguration ist nach Veröffentlichung gesperrt.')
       record.tournament.configurationVersion = previous.tournament.configurationVersion + 1
       record.tournament.revision = previous.tournament.revision + 1
+      record.tournament.colors = previous.tournament.colors
       record.audit = previous.audit
     }
     append(record, 'plan')
     write(record)
     return target
+  })
+}
+export function localSaveColors(id: string, version: number, colors: TournamentColors) {
+  return change(id, record => {
+    checkVersion(record.tournament, version)
+    record.tournament.colors = colors
+    append(record, 'colors', null, colors)
   })
 }
 export function localControl(id: string, version: number, action: ControlAction) {
