@@ -155,5 +155,6 @@ const auditNames: Record<string, string> = {
   plan: 'Spielplan gespeichert', publish: 'Turnier veröffentlicht', release: 'Phase freigegeben', archive: 'Archiviert',
   start: 'Spiel gestartet', pause: 'Pausiert', resume: 'Fortgesetzt', regular: 'Reguläre Spielzeit beendet',
   live: 'Live-Stand geändert', submit: 'Ergebnis eingereicht', confirm: 'Bestätigt', reject: 'Zurückgewiesen',
-  correct: 'Korrigiert', referee_invite: 'QR-Zugang erstellt', referee_redeem: 'Schiedsrichterzugang aktiviert', move: 'Spielplan geändert',
+  correct: 'Korrigiert', referee_invite: 'QR-Zugang erstellt', referee_redeem: 'Schiedsrichterzugang aktiviert',
+  court_activate: 'Feld-QR aktiviert', court_redeem: 'Feld-Zugang freigeschaltet', move: 'Spielplan geändert',
 }

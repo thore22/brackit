@@ -13,5 +13,11 @@ export type GameAction = 'start' | 'pause' | 'resume' | 'regular' | 'live' | 'su
 export type ControlAction = 'publish' | 'release' | 'archive'
 export interface GameCommand { game: number; version: number; request: string; action: GameAction; score?: Score }
 export interface Invitation { token: string; pin: string; expires: string }
+export interface CourtAssignment { tournamentId: string; field: string }
+export interface CourtLink extends CourtAssignment { expires: string }
+export interface CourtStation {
+  id: string; name: string; assignment: CourtAssignment | null; tournamentName: string | null; expires: string | null
+}
+export interface CourtActivation { id: string; pin: string; expires: string }
 export interface AuditEntry { action: string; match_id: number | null; created_at: string; payload: Record<string, unknown> }
 export const final = (game: GameState) => game.status === 'confirmed' || game.status === 'corrected'

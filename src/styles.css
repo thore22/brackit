@@ -485,5 +485,5 @@ label.checkbox { display: flex; align-items: center; gap: 8px; min-height: 29px;
   thead { display: table-header-group; }
   tr, .qr-card { break-inside: avoid; }
   .qr-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
-  .qr-column:empty, .qr-column:not(:has(.qr-card)) { display: none; }
+  .qr-column:not(:has(.qr-card)), .court-qr-column:not(:has(.qr-card)) { display: none; }
 }

@@ -27,11 +27,15 @@ export function ScheduleTable({ tournament, matches, manage = false }: { tournam
   </tbody></table></div> : <Empty title="Keine Begegnungen gefunden" description="Wähle einen anderen Filter."/>
 }
 
-export function SchedulePage({ tournament, manage = false }: { tournament: Tournament; manage?: boolean }) {
+export function SchedulePage({ tournament, manage = false, teamFilter }: {
+  tournament: Tournament; manage?: boolean; teamFilter?: { value: string; change: (team: string) => void }
+}) {
   const filtersId = useId()
   const [phase, setPhase] = useState('')
   const [field, setField] = useState('')
-  const [team, setTeam] = useState('')
+  const [localTeam, setLocalTeam] = useState('')
+  const team = teamFilter?.value ?? localTeam
+  const setTeam = teamFilter?.change ?? setLocalTeam
   const matches = ordered(tournament.plan.matches).filter(match => (!phase || match.stage === phase) && (!field || match.court === field) &&
     (!team || [match.a, match.b, match.referee].some(seed => seed && (tournament.seeds[seed] ?? seed) === team)))
   function csv() {

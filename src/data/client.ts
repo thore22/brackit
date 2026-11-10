@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import type { Match, Plan, TournamentConfig } from '../engine/model.ts'
-import { localAudit, localCanReport, localControl, localGame, localIssue, localList, localMove, localRead, localRedeem, localSave, watchLocal } from './local.ts'
-import type { AuditEntry, ControlAction, GameCommand, Invitation, Tournament, TournamentSummary } from './types.ts'
+import { localActivateCourt, localAudit, localCanReport, localControl, localGame, localIssue, localList, localListCourtStations, localMove, localRead, localRedeem, localRedeemCourt, localResolveCourt, localSave, watchLocal } from './local.ts'
+import type { AuditEntry, ControlAction, CourtActivation, CourtLink, CourtStation, GameCommand, Invitation, Tournament, TournamentSummary } from './types.ts'
 
 const url = import.meta.env.VITE_SUPABASE_URL
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
@@ -79,13 +79,29 @@ export const canReport = async (id: string, game: number) =>
   connected ? !!(await supabase?.auth.getSession())?.data.session && rpc<boolean>('cup_can_report', { t: id, game }) : localCanReport(id, game)
 export const issueRef = async (id: string, game: number) =>
   connected ? rpc<Invitation>('cup_issue_ref', { t: id, game }) : localIssue(id, game)
-export async function redeemRef(id: string, game: number, token: string, pin: string) {
-  if (!supabase) return localRedeem(id, game, token, pin)
+async function ensureReporterSession() {
+  if (!supabase) return
   const { data } = await supabase.auth.getSession()
   if (!data.session) {
     const { error } = await supabase.auth.signInAnonymously()
     if (error) throw error
   }
+}
+export async function redeemRef(id: string, game: number, token: string, pin: string) {
+  if (!supabase) return localRedeem(id, game, token, pin)
+  await ensureReporterSession()
   if (!await rpc<boolean>('cup_redeem_ref', { t: id, game, token, pin })) throw new Error('Zugang oder PIN ist ungültig, abgelaufen oder gesperrt.')
+}
+export const listCourtStations = async (id: string) =>
+  connected ? rpc<CourtStation[]>('cup_list_court_stations', { t: id }) : localListCourtStations()
+export const activateCourt = async (id: string, field: string, existing?: CourtStation) =>
+  connected ? rpc<CourtActivation>('cup_activate_court', { t: id, field, station: existing?.id ?? null, expected: existing?.expires ?? null }) :
+    localActivateCourt(id, field, existing)
+export const resolveCourt = async (station: string) =>
+  connected ? rpc<CourtLink | null>('cup_resolve_court', { station }) : localResolveCourt(station)
+export async function redeemCourt(station: string, id: string, game: number, pin: string) {
+  await ensureReporterSession()
+  const accepted = connected ? await rpc<boolean>('cup_redeem_court', { station, t: id, game, pin }) : await localRedeemCourt(station, id, game, pin)
+  if (!accepted) throw new Error('Die Feld-PIN ist ungültig, abgelaufen oder vorübergehend gesperrt. Prüfe die PIN und das laufende Spiel.')
 }
 export const audit = async (id: string) => connected ? rpc<AuditEntry[]>('cup_audit', { t: id }) : localAudit(id)

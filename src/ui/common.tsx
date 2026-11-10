@@ -8,6 +8,7 @@ import { participantLabel, type Match } from '../engine/model.ts'
 
 export const adminPath = (id: string) => `/admin/${id}`
 export const publicPath = (id: string, page = 'live') => `/t/${id}/${page}`
+export const courtPath = (id: string) => `/feld/${id}`
 export const dateLabel = (date: string) => new Intl.DateTimeFormat('de-DE', { dateStyle: 'long', timeZone: 'UTC' }).format(new Date(date + 'T12:00:00Z'))
 export function teamName(tournament: Tournament, value: string | null) {
   return participantLabel(tournament.config, value ? tournament.seeds[value] ?? value : value)
@@ -92,8 +93,8 @@ export function useNow(offset = 0, enabled = true) {
   return now + offset
 }
 
-export function Brand({ compact = false }: { compact?: boolean }) {
-  return <Link to="/" className="brand"><span className="brand-mark"><Volleyball size={22} strokeWidth={1.75}/></span>{!compact && <span>Turnier<span className="brand-accent">leitung</span><small>TURNIER MANAGEMENT</small></span>}</Link>
+export function Brand({ compact = false, to = '/' }: { compact?: boolean; to?: string }) {
+  return <Link to={to} className="brand"><span className="brand-mark"><Volleyball size={22} strokeWidth={1.75}/></span>{!compact && <span>Turnier<span className="brand-accent">leitung</span><small>TURNIER MANAGEMENT</small></span>}</Link>
 }
 export function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: string }) {
   return <span className={`badge ${tone}`}><i/>{children}</span>

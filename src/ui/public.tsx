@@ -1,19 +1,29 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { ArrowLeft, ArrowUpRight, CalendarRange, ChevronLeft, ChevronRight, Clock3, LockKeyhole, Maximize, Monitor, Pause, Play, Radio, Timer, Trophy, Users } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router'
-import { canReport, connected, errorText, redeemRef } from '../data/client.ts'
+import { canReport, connected, errorText, redeemCourt, redeemRef } from '../data/client.ts'
 import type { Tournament } from '../data/types.ts'
+import { rememberLiveTournament, rememberTeam, savedTeam } from '../data/viewer.ts'
 import { countdown, formatDuration } from '../engine/game.ts'
 import { clock, type Match } from '../engine/model.ts'
-import { active, Badge, Brand, courtName, Empty, EventDate, gameOf, Heading, Notice, publicPath, stageName, Status, teamName, upcoming, useNow } from './common.tsx'
+import { active, Badge, Brand, courtName, Empty, EventDate, gameOf, Heading, Notice, ordered, publicPath, stageName, Status, teamName, upcoming, useNow } from './common.tsx'
 import { GamePanel } from './game-panel.tsx'
 import { MatchTile, SchedulePage, SlotList, StandingsPage, TableGrid, tablePageCount } from './schedule.tsx'
 
 export function PublicHeader({ tournament }: { tournament: Tournament }) {
-  return <header className="public-header"><div><Brand/><Link to={publicPath(tournament.id, 'tv')} className="button secondary"><Monitor size={17}/>TV-Modus<ArrowUpRight size={15}/></Link></div></header>
+  return <header className="public-header"><div><Brand to="/start"/><Link to={publicPath(tournament.id, 'tv')} className="button secondary"><Monitor size={17}/>TV-Modus<ArrowUpRight size={15}/></Link></div></header>
 }
 export function LivePage({ tournament, offset }: { tournament: Tournament; offset: number }) {
-  const [tab, setTab] = useState('live')
+  const [team, setTeam] = useState(() => {
+    const saved = savedTeam(tournament.id)
+    return tournament.config.teams.some(team => team.id === saved) ? saved : ''
+  })
+  const [tab, setTab] = useState(() => team ? 'schedule' : 'live')
+  useEffect(() => { rememberLiveTournament(tournament.id) }, [tournament.id])
+  function changeTeam(team: string) {
+    setTeam(team)
+    rememberTeam(tournament.id, team)
+  }
   const running = active(tournament)
   const now = useNow(offset, !!running.length)
   const next = upcoming(tournament, 2)
@@ -34,12 +44,20 @@ export function LivePage({ tournament, offset }: { tournament: Tournament; offse
       <section className="card"><div className="card-heading"><div><h2>Tabellen der {stageName(tournament)}</h2><p>Nur bestätigte Endergebnisse fließen in die Wertung ein.</p></div></div></section>
       <TableGrid tournament={tournament} phase={tournament.config.stages[tournament.released]?.id} compact/>
     </>}
-    {tab === 'schedule' && <SchedulePage tournament={tournament}/>}
+    {tab === 'schedule' && <SchedulePage tournament={tournament} teamFilter={{ value: team, change: changeTeam }}/>}
     {tab === 'table' && <StandingsPage tournament={tournament}/>}
   </>
 }
 
-export function ReportPage({ tournament, offset, offline, refresh }: { tournament: Tournament; offset: number; offline: boolean; refresh: () => unknown }) {
+type ReportProps = { tournament: Tournament; offset: number; offline: boolean; refresh: () => unknown }
+
+function ReportHeading({ tournament, subtitle = tournament.config.name }: { tournament: Tournament; subtitle?: string }) {
+  return <Heading eyebrow="Schiedsgericht" title="Ergebnis melden" subtitle={subtitle}
+    actions={<Link className="button secondary" to={publicPath(tournament.id)}><ArrowLeft size={17}/>Live-Ansicht</Link>}/>
+}
+
+export function ReportPage(props: ReportProps) {
+  const { tournament } = props
   const [params] = useSearchParams()
   const field = params.get('field')
   const slot = params.get('slot')
@@ -47,52 +65,89 @@ export function ReportPage({ tournament, offset, offline, refresh }: { tournamen
   const token = params.get('token') ?? ''
   const court = tournament.config.courts.find(item => item.id === field) ?? tournament.config.courts[Number(field) - 1]
   const match = tournament.plan.matches.find(match => match.court === court?.id && match.slot === Number(slot) && (!expected || match.id === Number(expected)))
+  return <>
+    <ReportHeading tournament={tournament}/>
+    {match ? <ReportMatch key={match.id} {...props} match={match} token={token}/> :
+      <section className="card"><Empty title="Spiel nicht gefunden" description="Der Slot ist frei oder das Spiel wurde verschoben. Bitte verwende den aktuellen QR-Code."/></section>}
+  </>
+}
+
+export function CourtReportPage({ station, field, expires, ...props }: ReportProps & { station: string; field: string; expires: string }) {
+  const { tournament, offset } = props
+  const released = new Set(tournament.config.stages.slice(0, tournament.released + 1).map(stage => stage.id))
+  const matches = ordered(tournament.plan.matches.filter(match => match.court === field && released.has(match.stage)))
+  const running = matches.find(match => gameOf(tournament, match.id).status === 'running')
+  const next = matches.find(match => gameOf(tournament, match.id).status === 'scheduled')
+  const recent = matches.filter(match => gameOf(tournament, match.id).ended)
+    .sort((a, b) => Date.parse(gameOf(tournament, b.id).ended!) - Date.parse(gameOf(tournament, a.id).ended!))[0]
+  const match = running ?? recent ?? next
+  const pinExpired = Date.now() + offset >= Date.parse(expires)
+  return <>
+    <ReportHeading tournament={tournament} subtitle={`${courtName(tournament, field)} · ${tournament.config.name}`}/>
+    {!running && <Notice tone="info">
+      {next ? `Die Turnierleitung startet das nächste Spiel. Geplant: ${teamName(tournament, next.a)} gegen ${teamName(tournament, next.b)}, ${clock(next.start)} Uhr.` :
+        'Auf diesem Feld läuft gerade kein freigegebenes Spiel.'}
+    </Notice>}
+    {running && !pinExpired ? <ReportMatch key={`${running.id}.${expires}`} {...props} match={running} station={station}/> :
+      <>
+        {running && <Notice tone="info">Die Feld-PIN ist abgelaufen. Bitte frage die Turnierleitung nach einer neuen PIN.</Notice>}
+        {match && <GamePanel key={match.id} {...props} match={match} admin={false} access={false}/>}
+      </>}
+  </>
+}
+
+function ReportMatch({ tournament, match, offset, offline, refresh, token, station }: ReportProps & {
+  match: Match; token?: string; station?: string
+}) {
   const [pin, setPin] = useState('')
-  const [allowed, setAllowed] = useState(false)
+  const [allowed, setAllowed] = useState<boolean | null>(null)
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
-  const matchId = match?.id
-  const permissionKey = `turnierleitung.report.${tournament.id}.${matchId}`
+  const permissionKey = `turnierleitung.report.${tournament.id}.${match.id}`
   useEffect(() => {
     let current = true
-    setAllowed(!!matchId && sessionStorage.getItem(permissionKey) === '1')
-    if (matchId && !offline) canReport(tournament.id, matchId).then(result => {
+    if (offline) {
+      setAllowed(sessionStorage.getItem(permissionKey) === '1')
+      return
+    }
+    setAllowed(null)
+    canReport(tournament.id, match.id).then(result => {
       if (!current) return
       setAllowed(result)
       if (result) sessionStorage.setItem(permissionKey, '1')
       else sessionStorage.removeItem(permissionKey)
-    }).catch(() => {})
+    }).catch(() => { if (current) setAllowed(false) })
     return () => { current = false }
-  }, [tournament.id, matchId, offline, permissionKey])
+  }, [tournament.id, match.id, offline, permissionKey])
   async function redeem(event: FormEvent) {
     event.preventDefault()
-    if (!matchId) return
+    if (allowed === null || busy || offline) return
     setBusy(true); setMessage('')
     try {
-      await redeemRef(tournament.id, matchId, token, pin)
+      if (station) await redeemCourt(station, tournament.id, match.id, pin)
+      else if (token) await redeemRef(tournament.id, match.id, token, pin)
       sessionStorage.setItem(permissionKey, '1')
       setAllowed(true)
       setPin('')
-    } catch (error) { setMessage(errorText(error)) }
+    } catch (error) {
+      setMessage(errorText(error))
+      await refresh()
+    }
     finally { setBusy(false) }
   }
   return <>
-    <Heading eyebrow="Schiedsgericht" title="Ergebnis melden" subtitle={tournament.config.name} actions={<Link className="button secondary" to={publicPath(tournament.id)}><ArrowLeft size={17}/>Live-Ansicht</Link>}/>
-    {!match && <section className="card"><Empty title="Spiel nicht gefunden" description="Der Slot ist frei oder das Spiel wurde verschoben. Bitte verwende den aktuellen QR-Code."/></section>}
-    {match && <>
-      {!allowed && <section className="card"><div className="card-heading"><div><h2><LockKeyhole size={18}/> Schiedsrichterzugang</h2><p>{courtName(tournament, match.court)} · Slot {match.slot} · Spiel {match.id}</p></div></div>
+    {allowed !== true && <section className="card"><div className="card-heading"><div><h2><LockKeyhole size={18}/> Schiedsrichterzugang</h2><p>{courtName(tournament, match.court)} · Slot {match.slot} · Spiel {match.id}</p></div></div>
         <div className="card-body">
-          {token ? <form className="form-stack" onSubmit={redeem}>
-            <p>Gib die achtstellige PIN ein, die du von der Turnierleitung erhalten hast.</p>
+          {token || station ? <form className="form-stack" onSubmit={redeem}>
+            <p>{station ? 'Gib die achtstellige Feld-PIN der Turnierleitung ein, um dieses Spiel freizuschalten.' : 'Gib die achtstellige PIN ein, die du von der Turnierleitung erhalten hast.'}</p>
             {!connected && <Notice tone="info">Lokaler Modus. Dieser Zugang funktioniert im Browser mit den gespeicherten Turnierdaten.</Notice>}
-            <label>Schiedsrichter-PIN<input type="password" inputMode="numeric" pattern="[0-9]{8}" maxLength={8} required value={pin} onChange={event => setPin(event.target.value)}/></label>
+            <label>{station ? 'Feld-PIN' : 'Schiedsrichter-PIN'}<input type="password" inputMode="numeric" pattern="[0-9]{8}" maxLength={8} required value={pin} onChange={event => setPin(event.target.value)}/></label>
             {message && <Notice>{message}</Notice>}
-            <button className="button primary fit" disabled={busy || offline}><LockKeyhole size={17}/>Zugang freischalten</button>
+            <button className="button primary fit" disabled={busy || offline || allowed === null}><LockKeyhole size={17}/>Zugang freischalten</button>
           </form> : <Notice tone="info">Scanne den vollständigen Schiedsrichter-QR-Code, um Schreibzugriff für dieses Spiel zu erhalten.</Notice>}
         </div>
       </section>}
-      <GamePanel key={match.id} tournament={tournament} match={match} offline={offline} offset={offset} refresh={refresh} admin={false} access={allowed}/>
-    </>}
+    <GamePanel key={match.id} tournament={tournament} match={match} offline={offline} offset={offset} refresh={refresh} admin={false} access={allowed === true}/>
   </>
 }
 

@@ -1,19 +1,20 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { ArrowRight, Bell, CalendarRange, ChevronDown, ChevronRight, CircleHelp, ClipboardCheck, Download, LayoutDashboard, LogIn, LogOut, Menu, Monitor, Moon, Plus, QrCode, Radio, Settings2, Sun, Trophy, Volleyball, X } from 'lucide-react'
 import type { Session } from '@supabase/supabase-js'
-import { Link, Navigate, NavLink, Route, Routes, useLocation, useParams } from 'react-router'
+import { Link, Navigate, NavLink, Route, Routes, useLocation, useNavigate, useParams } from 'react-router'
 import { useRegisterSW } from 'virtual:pwa-register/react'
-import { connected, errorText, incompleteSetup, latestCachedTournament, listTournaments, supabase } from '../data/client.ts'
+import { connected, errorText, incompleteSetup, latestCachedTournament, listTournaments, resolveCourt, supabase } from '../data/client.ts'
 import { demoId } from '../data/local.ts'
-import type { Tournament, TournamentSummary } from '../data/types.ts'
+import type { CourtLink, Tournament, TournamentSummary } from '../data/types.ts'
+import { lastLiveTournament } from '../data/viewer.ts'
 import { Dashboard, ResultsPage, SettingsPage } from './admin.tsx'
 import { adminPath, Badge, Brand, dateLabel, Empty, Heading, Notice, progress, publicPath, useTournament } from './common.tsx'
 import { GamePanel } from './game-panel.tsx'
-import { LivePage, PublicHeader, ReportPage, TVPage } from './public.tsx'
-import { QRPage } from './qr.tsx'
+import { CourtReportPage, LivePage, PublicHeader, ReportPage, TVPage } from './public.tsx'
 import { SchedulePage, StandingsPage } from './schedule.tsx'
 import { Wizard } from './wizard.tsx'
 
+const QRPage = lazy(() => import('./qr.tsx'))
 const sections = [
   { label: 'Übersicht', icon: LayoutDashboard, path: '' },
   { label: 'Spielplan', icon: CalendarRange, path: '/spielplan' },
@@ -50,19 +51,57 @@ export function App() {
   const workspace = (child: ReactNode) => <Shell theme={theme} session={session}>{child}</Shell>
   const guard = (child: ReactNode) => connected && !signedIn
     ? session === undefined ? workspace(<Loading/>) : workspace(<Login/>) : child
-  const cached = connected && !navigator.onLine ? latestCachedTournament() : null
   return <>
     <a className="skip-link" href="#inhalt">Zum Inhalt</a>
     <Routes>
-      <Route path="/" element={<Navigate to={cached ? publicPath(cached.id) : connected ? '/turniere' : adminPath(demoId)} replace/>}/>
+      <Route path="/" element={<LaunchRoute/>}/>
+      <Route path="/start" element={<StartPage/>}/>
       <Route path="/turniere" element={guard(workspace(<TournamentList/>))}/>
       <Route path="/neu" element={guard(workspace(<Wizard/>))}/>
       <Route path="/admin/:id/*" element={guard(<AdminRoute theme={theme} session={session}/>)}/>
       <Route path="/t/:id/:screen" element={<PublicRoute/>}/>
+      <Route path="/feld/:station" element={<CourtRoute/>}/>
       <Route path="*" element={workspace(<Empty title="Seite nicht gefunden" description="Öffne die Turnierverwaltung über das Menü."/>)}/>
     </Routes>
     {update && <div className="pwa-update"><span>Eine neue App-Version ist verfügbar.</span><button className="button primary" onClick={() => void updateServiceWorker(true)}>Aktualisieren</button></div>}
   </>
+}
+
+function LaunchRoute() {
+  const cached = connected && !navigator.onLine ? latestCachedTournament() : null
+  const last = lastLiveTournament() || cached?.id
+  if (last) return <Navigate to={publicPath(encodeURIComponent(last))} replace/>
+  return connected ? <StartPage/> : <Navigate to={adminPath(demoId)} replace/>
+}
+
+function StartPage() {
+  const [link, setLink] = useState('')
+  const [failure, setFailure] = useState('')
+  const navigate = useNavigate()
+  function open(event: FormEvent) {
+    event.preventDefault()
+    try {
+      const url = new URL(link.trim(), window.location.origin)
+      if (url.origin === window.location.origin && /^\/t\/[a-z0-9-]+\/live\/?$/i.test(url.pathname)) {
+        navigate(url.pathname)
+        return
+      }
+    } catch { /* Invalid URL. */ }
+    setFailure('Füge den vollständigen Live-Link dieses Turniers ein.')
+  }
+  const last = lastLiveTournament()
+  return <div className="public-shell">
+    <header className="public-header"><div><Brand to="/start"/><Link className="button secondary" to="/turniere">Turnierverwaltung</Link></div></header>
+    <main id="inhalt" className="public-content">
+      <Heading eyebrow="Live-Ansicht" title="Turnier öffnen" subtitle="Scanne den QR-Code am Spielort oder füge den Live-Link ein."/>
+      {last && <Link className="button secondary fit" to={publicPath(encodeURIComponent(last))}>Letztes Turnier öffnen</Link>}
+      <section className="card login-card"><form className="card-body form-stack" onSubmit={open}>
+        <label>Turnierlink<input type="text" inputMode="url" autoComplete="off" value={link} onChange={event => { setLink(event.target.value); setFailure('') }} required/></label>
+        {failure && <Notice>{failure}</Notice>}
+        <button className="button primary fit">Live-Ansicht öffnen</button>
+      </form></section>
+    </main>
+  </div>
 }
 
 type Theme = { dark: boolean; toggle: () => void }
@@ -81,7 +120,7 @@ function Shell({ tournament, session, theme, children }: { tournament?: Tourname
   return <div className="app-shell">
     {open && <button className="nav-overlay" aria-label="Menü schließen" onClick={() => setOpen(false)}/>}
     <aside className={`sidebar ${open ? 'open' : ''}`} id="hauptnavigation">
-      <div className="sidebar-brand"><Brand/><button className="icon-button minimal mobile-only" aria-label="Menü schließen" onClick={() => setOpen(false)}><X size={20}/></button></div>
+      <div className="sidebar-brand"><Brand to={tournament ? adminPath(tournament.id) : '/turniere'}/><button className="icon-button minimal mobile-only" aria-label="Menü schließen" onClick={() => setOpen(false)}><X size={20}/></button></div>
       <Link className="tournament-switch" to="/turniere">
         <span className="switch-icon"><Volleyball size={18}/></span><span><small>TURNIER</small><strong>{tournament?.config.name ?? 'Meine Turniere'}</strong></span><ChevronDown size={15}/>
       </Link>
@@ -167,7 +206,7 @@ function AdminRoute({ theme, session }: { theme: Theme; session?: Session | null
       <Route path="tabellen" element={<StandingsPage tournament={tournament} manage/>}/>
       <Route path="ergebnisse" element={<ResultsPage tournament={tournament}/>}/>
       <Route path="einstellungen" element={<SettingsPage tournament={tournament} offline={offline} refresh={refresh}/>}/>
-      <Route path="qr" element={<QRPage tournament={tournament} offline={offline}/>}/>
+      <Route path="qr" element={<Suspense fallback={<Loading/>}><QRPage tournament={tournament} offline={offline}/></Suspense>}/>
       <Route path="spiel/:game" element={<AdminGame tournament={tournament} offline={offline} offset={offset} refresh={refresh}/>}/>
       <Route path="konfigurieren" element={tournament.state === 'draft' ? <Wizard key={tournament.id} existing={tournament} offline={offline}/> : <Navigate to=".." replace/>}/>
       <Route path="*" element={<Empty title="Ansicht nicht gefunden"/>}/>
@@ -181,16 +220,64 @@ function AdminGame(props: { tournament: Tournament; offline: boolean; offset: nu
 }
 function PublicRoute() {
   const { id = '', screen } = useParams()
+  return <PublicTournament key={id} id={id} screen={screen}/>
+}
+function CourtRoute() {
+  const { station = '' } = useParams()
+  return <CourtAssignmentRoute key={station} station={station}/>
+}
+function CourtAssignmentRoute({ station }: { station: string }) {
+  const [assignment, setAssignment] = useState<CourtLink | null>()
+  const [failure, setFailure] = useState('')
+  const valid = /^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(station)
+  useEffect(() => {
+    if (!valid) return
+    let current = true
+    let pending = false
+    async function read() {
+      if (pending) return
+      pending = true
+      try {
+        const result = await resolveCourt(station)
+        if (current) { setAssignment(result); setFailure('') }
+      } catch (error) {
+        if (current) setFailure(errorText(error))
+      } finally { pending = false }
+    }
+    void read()
+    const timer = window.setInterval(read, 15_000)
+    window.addEventListener('online', read)
+    window.addEventListener('focus', read)
+    return () => {
+      current = false
+      clearInterval(timer)
+      window.removeEventListener('online', read)
+      window.removeEventListener('focus', read)
+    }
+  }, [station, valid])
+  if (assignment) return <PublicTournament key={`${assignment.tournamentId}.${assignment.field}`} id={assignment.tournamentId} screen="court"
+    court={{ station, field: assignment.field, expires: assignment.expires }}/>
+  return <div className="public-shell">
+    <header className="public-header"><div><Brand to="/start"/></div></header>
+    <main id="inhalt" className="public-content">
+      {failure ? <Notice>{failure}</Notice> :
+        assignment === null || !valid ?
+          <section className="card"><Empty title="Kein aktives Turnier auf diesem Feld" description="Sobald die Turnierleitung den QR-Code einem Feld zuordnet, erscheint das Turnier hier."/></section> : <Loading/>}
+    </main>
+  </div>
+}
+function PublicTournament({ id, screen, court }: { id: string; screen?: string; court?: { station: string; field: string; expires: string } }) {
   const { tournament, failure, offline, linked, offset, refresh } = useTournament(id, false)
   if (screen === 'tv' && tournament) return <TVPage tournament={tournament} offset={offset} offline={offline}/>
   return <div className="public-shell">
-    {tournament ? <PublicHeader tournament={tournament}/> : <header className="public-header"><div><Brand/></div></header>}
+    {tournament ? <PublicHeader tournament={tournament}/> : <header className="public-header"><div><Brand to="/start"/></div></header>}
     <main id="inhalt" className="public-content">
       {offline && <Notice tone="offline">Offline – Daten möglicherweise nicht aktuell.</Notice>}
       {connected && !linked && !offline && tournament && <Notice tone="info">Echtzeitverbindung wird aufgebaut.</Notice>}
       {!tournament ? failure ? <Notice>{failure}</Notice> : offline ? <Empty title="Kein Turnierstand gespeichert"/> : <Loading/> :
         screen === 'live' ? <LivePage key={id} tournament={tournament} offset={offset}/> :
           screen === 'report' ? <ReportPage key={id} tournament={tournament} offset={offset} offline={offline} refresh={refresh}/> :
+          court ? <CourtReportPage tournament={tournament} offset={offset} offline={offline} refresh={refresh} {...court}/> :
             <Empty title="Ansicht nicht gefunden"/>}
     </main>
   </div>

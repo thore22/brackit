@@ -4,12 +4,22 @@ import { tournamentTables } from '../engine/standings.ts'
 import { volleyball } from '../engine/template.ts'
 import type { Match, Plan, TournamentConfig } from '../engine/model.ts'
 import { validateSchedule } from '../engine/validate.ts'
-import { final, type AuditEntry, type ControlAction, type GameCommand, type Invitation, type Tournament, type TournamentSummary } from './types.ts'
+import { final, type AuditEntry, type ControlAction, type CourtActivation, type CourtStation, type GameCommand, type Invitation, type Tournament, type TournamentSummary } from './types.ts'
 
 const prefix = 'turnierleitung.local.'
 export const demoId = 'volleyball-cup'
 const key = (id: string) => prefix + id
 type RecordData = { tournament: Tournament; audit: AuditEntry[]; requests: Record<string, string>; invitations: Record<number, Invitation>; access: Record<number, string> }
+type LocalCourtStation = CourtStation & { pin: string; generation: string; failures: number; blockedUntil: number }
+const stationsKey = 'turnierleitung.court-stations'
+const courtStations = (): LocalCourtStation[] => JSON.parse(localStorage.getItem(stationsKey) ?? '[]')
+const courtGrantKey = (id: string, game: number, station: string) => `${key(id)}.court.${game}.${station}`
+function newPin(previous?: string) {
+  const value = crypto.getRandomValues(new Uint32Array(1))[0] % 100_000_000
+  const pin = String(value).padStart(8, '0')
+  return pin === previous ? String((value + 1) % 100_000_000).padStart(8, '0') : pin
+}
+const newExpiry = () => new Date(Date.now() + 43_200_000).toISOString()
 function build(id: string, config: TournamentConfig, plan: Plan, state: Tournament['state'] = 'draft'): RecordData {
   return {
     tournament: { id, config, plan, state, revision: 1, configurationVersion: 1, released: 0, admin: true,
@@ -115,8 +125,14 @@ export function localMove(id: string, version: number, match: Match) {
   })
 }
 export function localCanReport(id: string, game: number) {
-  const expires = read(id).access[game]
-  return !!expires && Date.parse(expires) > Date.now() && !!sessionStorage.getItem(`${key(id)}.access.${game}`)
+  const { access, tournament } = read(id)
+  const expires = access[game]
+  if (expires && Date.parse(expires) > Date.now() && sessionStorage.getItem(`${key(id)}.access.${game}`)) return true
+  const match = tournament.plan.matches.find(match => match.id === game)
+  return tournament.state === 'published' && !!match && courtStations().some(station =>
+    station.assignment?.tournamentId === id && station.assignment.field === match.court &&
+    !!station.expires && Date.parse(station.expires) > Date.now() &&
+    sessionStorage.getItem(courtGrantKey(id, game, station.id)) === station.generation)
 }
 export function localRedeem(id: string, game: number, token: string, pin: string) {
   return change(id, record => {
@@ -130,8 +146,8 @@ export function localRedeem(id: string, game: number, token: string, pin: string
 export async function localIssue(id: string, game: number): Promise<Invitation> {
   const invitation = {
     token: Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join(''),
-    pin: String(crypto.getRandomValues(new Uint32Array(1))[0] % 100_000_000).padStart(8, '0'),
-    expires: new Date(Date.now() + 43_200_000).toISOString(),
+    pin: newPin(),
+    expires: newExpiry(),
   }
   await change(id, record => {
     const { tournament } = record
@@ -141,6 +157,60 @@ export async function localIssue(id: string, game: number): Promise<Invitation> 
     append(record, 'referee_invite', game)
   })
   return invitation
+}
+export function localListCourtStations(): CourtStation[] {
+  return courtStations().map(({ id, name, assignment, tournamentName, expires }) => ({ id, name, assignment, tournamentName, expires }))
+}
+export function localResolveCourt(id: string) {
+  const station = courtStations().find(station => station.id === id)
+  const assignment = station?.assignment
+  return assignment && station.expires && read(assignment.tournamentId).tournament.state === 'published'
+    ? { ...assignment, expires: station.expires } : null
+}
+export function localActivateCourt(id: string, field: string, observed?: CourtStation): Promise<CourtActivation> {
+  return locked(stationsKey, () => {
+    const { tournament } = read(id)
+    const court = tournament.config.courts.find(court => court.id === field)
+    if (tournament.state !== 'published' || !court) throw new Error('Veröffentliche das Turnier, bevor du einen Feld-QR zuordnest.')
+    const stations = courtStations()
+    const existing = stations.find(station => station.id === observed?.id)
+    if (observed && existing?.expires !== observed.expires) throw new Error('Dieser Feld-QR wurde inzwischen geändert. Prüfe die aktuelle Zuordnung.')
+    if (stations.some(station => station.id !== observed?.id && station.assignment?.tournamentId === id && station.assignment.field === field)) {
+      throw new Error('Diesem Feld ist bereits ein Feld-QR zugeordnet.')
+    }
+    const station = {
+      id: existing?.id ?? crypto.randomUUID(), name: existing?.name ?? court.name,
+      assignment: { tournamentId: id, field }, tournamentName: tournament.config.name,
+      pin: newPin(existing?.pin), expires: newExpiry(), generation: crypto.randomUUID(), failures: 0, blockedUntil: 0,
+    }
+    localStorage.setItem(stationsKey, JSON.stringify([...stations.filter(item => item.id !== station.id), station]))
+    return { id: station.id, pin: station.pin, expires: station.expires }
+  })
+}
+export function localRedeemCourt(stationId: string, id: string, game: number, pin: string) {
+  return locked(stationsKey, () => {
+    const { tournament } = read(id)
+    const match = tournament.plan.matches.find(match => match.id === game)
+    const stations = courtStations()
+    const station = stations.find(station => station.id === stationId)
+    const now = Date.now()
+    if (!station || station.assignment?.tournamentId !== id || station.assignment.field !== match?.court ||
+      tournament.state !== 'published' || !tournament.games.some(state => state.id === game && state.status === 'running') ||
+      !station.expires || Date.parse(station.expires) <= now || station.blockedUntil > now || !/^[0-9]{8}$/.test(pin)) return false
+    if (station.pin !== pin) {
+      if (++station.failures === 8) {
+        station.failures = 0
+        station.blockedUntil = now + 300_000
+      }
+      localStorage.setItem(stationsKey, JSON.stringify(stations))
+      return false
+    }
+    station.failures = 0
+    station.blockedUntil = 0
+    localStorage.setItem(stationsKey, JSON.stringify(stations))
+    sessionStorage.setItem(courtGrantKey(id, game, stationId), station.generation)
+    return true
+  })
 }
 export const localAudit = (id: string) => read(id).audit.slice(0, 100)
 export function watchLocal(id: string, refresh: () => void) {

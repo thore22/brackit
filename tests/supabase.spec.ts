@@ -4,7 +4,7 @@ const email = process.env.TEST_ADMIN_EMAIL
 const password = process.env.TEST_ADMIN_PASSWORD
 test.skip(!process.env.TEST_BASE_URL || !email || !password, 'Verbundene Testinstanz und Admin-Konto erforderlich')
 
-test('Supabase Auth, QR-Freigabe und echte Realtime-Updates in getrennten Browser-Kontexten', async ({ page, browser }) => {
+test('Supabase Auth, Feld-QR und echte Realtime-Updates in getrennten Browser-Kontexten', async ({ page, browser }) => {
   await page.goto('/neu')
   await page.getByLabel('E-Mail').fill(email!)
   await page.getByLabel('Passwort').fill(password!)
@@ -19,8 +19,8 @@ test('Supabase Auth, QR-Freigabe und echte Realtime-Updates in getrennten Browse
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
   const id = page.url().split('/').at(-1)
   await page.getByRole('link', { name: 'QR-Codes', exact: true }).click()
-  const field = page.locator('.qr-column').first()
-  await field.getByRole('button', { name: 'QR-Zugang erzeugen' }).click()
+  await page.getByRole('button', { name: 'Feld-QR anlegen' }).first().click()
+  const field = page.locator('.qr-card').filter({ hasText: 'Dauerhafter Feld-QR' }).first()
   const pin = await field.locator('.qr-pin strong').innerText()
   const href = (await field.getByRole('link', { name: 'Öffnen' }).getAttribute('href'))!
   const spectatorContext = await browser.newContext({ viewport: { width: 390, height: 844 } })
@@ -30,14 +30,14 @@ test('Supabase Auth, QR-Freigabe und echte Realtime-Updates in getrennten Browse
     const referee = await refereeContext.newPage()
     await spectator.goto(new URL(`/t/${id}/live`, page.url()).href)
     await referee.goto(href)
-    await referee.getByLabel('Schiedsrichter-PIN').fill(pin)
-    await referee.getByRole('button', { name: 'Zugang freischalten' }).click()
-    await expect(referee.getByText('Die Turnierleitung startet das Spiel.', { exact: false })).toBeVisible()
+    await expect(referee.getByText(/Die Turnierleitung startet das nächste Spiel/)).toBeVisible()
     await expect(spectator.getByText(/Echtzeitverbindung wird aufgebaut/)).toHaveCount(0)
     await page.goto(new URL(`/admin/${id}/spiel/1`, page.url()).href)
     await expect(page.getByText(/Echtzeitverbindung wird aufgebaut/)).toHaveCount(0)
     await page.getByRole('button', { name: 'Spiel starten' }).click()
     await expect(spectator.getByText('0 : 0', { exact: true })).toBeVisible({ timeout: 7000 })
+    await referee.getByLabel('Feld-PIN').fill(pin)
+    await referee.getByRole('button', { name: 'Zugang freischalten' }).click()
     await referee.getByRole('spinbutton', { name: 'Punkte Team 01' }).fill('24')
     await referee.getByRole('spinbutton', { name: 'Punkte Team 04' }).fill('19')
     await referee.getByRole('button', { name: 'Live-Stand aktualisieren' }).click()
