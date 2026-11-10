@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env*
+!.env.example
+.pnpm-store/
+playwright-report/
+test-results/
+debug.log
+.supabase/
+supabase/.temp/
