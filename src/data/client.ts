@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import type { Match, Plan, TournamentConfig } from '../engine/model.ts'
+import { localSaveColors } from './local.ts'
+import type { TournamentColors } from './types.ts'
 import { localActivateCourt, localAudit, localCanReport, localControl, localGame, localIssue, localList, localListCourtStations, localMove, localRead, localRedeem, localRedeemCourt, localResolveCourt, localSave, watchLocal } from './local.ts'
 import type { AuditEntry, ControlAction, CourtActivation, CourtLink, CourtStation, GameCommand, Invitation, Tournament, TournamentSummary } from './types.ts'
 
@@ -70,6 +72,13 @@ export const savePlan = async (id: string | null, version: number | null, config
   connected ? rpc<string>('cup_save_plan', { t: id, expected: version, cfg: config, plan }) : localSave(id, version, config, plan)
 export const control = async (id: string, version: number, action: ControlAction) =>
   connected ? rpc('cup_control', { t: id, expected: version, action }) : localControl(id, version, action)
+export async function saveColors(id: string, version: number, colors: TournamentColors) {
+  if (![colors.primary, colors.background].every(color => /^#[0-9a-f]{6}$/i.test(color))) {
+    throw new Error('Wähle zwei gültige Farben.')
+  }
+  return connected ? rpc('cup_set_colors', { t: id, expected: version, brand: colors.primary, canvas: colors.background }) :
+    localSaveColors(id, version, colors)
+}
 export const moveMatch = async (id: string, version: number, match: Match) =>
   connected ? rpc('cup_move', { t: id, expected: version, game: match.id, field: match.court, slot: match.slot, ref: match.referee }) : localMove(id, version, match)
 export const gameAction = async (id: string, command: GameCommand, admin: boolean) => connected

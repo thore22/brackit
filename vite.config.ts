@@ -11,7 +11,7 @@ export default defineConfig({
       id: '/', name: 'Turnierleitung', short_name: 'Turnierleitung', lang: 'de',
       description: 'Spielplan und Live-Ergebnisse für deinen Turniertag',
       start_url: '/', scope: '/', display: 'standalone',
-      background_color: '#f5f6f2', theme_color: '#174c3c',
+      background_color: '#edf0f4', theme_color: '#244a78',
       icons: [
         { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
         { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },

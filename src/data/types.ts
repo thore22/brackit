@@ -3,10 +3,12 @@ import type { Plan, TournamentConfig } from '../engine/model.ts'
 import type { Score } from '../engine/standings.ts'
 
 export type TournamentStatus = 'draft' | 'published' | 'archived'
+export interface TournamentColors { primary: string; background: string }
 export interface Tournament {
   id: string; revision: number; configurationVersion: number; state: TournamentStatus; released: number
   admin: boolean; config: TournamentConfig; plan: Plan; games: GameState[]
   serverNow: string; seeds: Record<string, string>
+  colors?: TournamentColors | null
 }
 export interface TournamentSummary { id: string; name: string; date: string; state: TournamentStatus }
 export type GameAction = 'start' | 'pause' | 'resume' | 'regular' | 'live' | 'submit' | 'confirm' | 'reject' | 'correct'

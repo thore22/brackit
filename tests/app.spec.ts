@@ -2,6 +2,27 @@ import { expect, test } from '@playwright/test'
 
 test.skip(!!process.env.TEST_BASE_URL, 'Lokaler Betrieb')
 
+test('Turnierfarben gelten auf allen Ansichten und lassen sich zurücksetzen', async ({ page, context }) => {
+  await page.goto('/admin/volleyball-cup/einstellungen')
+  const live = await context.newPage()
+  await live.goto('/t/volleyball-cup/live')
+  const color = (view: typeof page, name: string) => expect.poll(() => view.locator('html').evaluate((element, token) => getComputedStyle(element).getPropertyValue(token).trim(), name))
+  await color(live, '--brand').toBe('#244a78')
+  await page.getByLabel('Hauptfarbe').fill('#71305d')
+  await page.getByLabel('Hintergrundfarbe').fill('#f4ebe1')
+  await page.getByRole('button', { name: 'Farben speichern' }).click()
+  await color(page, '--brand').toBe('#71305d')
+  await color(live, '--brand').toBe('#71305d')
+  for (const screen of ['report', 'tv']) {
+    await live.goto(`/t/volleyball-cup/${screen}`)
+    await color(live, '--brand').toBe('#71305d')
+    await color(live, '--canvas').toBe('#f4ebe1')
+  }
+  await page.getByRole('button', { name: 'Standardfarben wählen' }).click()
+  await page.getByRole('button', { name: 'Farben speichern' }).click()
+  await color(live, '--brand').toBe('#244a78')
+})
+
 test('Dashboard, mobile Zuschaueransicht und TV-Rotation', async ({ page }, testInfo) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Volleyball Cup', exact: true })).toBeVisible()
