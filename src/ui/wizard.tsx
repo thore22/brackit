@@ -1,20 +1,79 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, ArrowRight, Check, ClipboardList, Plus, Save, Sparkles, Trash2, Upload, Volleyball, X } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router'
-import { control, errorText, readTournament, savePlan } from '../data/client.ts'
-import type { Tournament } from '../data/types.ts'
+import { control, errorText, listTournaments, readTournament, savePlan } from '../data/client.ts'
+import type { Tournament, TournamentSummary } from '../data/types.ts'
 import { emptyGame } from '../engine/game.ts'
 import { participantLabel, rank, type Group, type Named, type Pair, type Plan, type Stage, type Tiebreak, type TournamentConfig } from '../engine/model.ts'
 import { emptyTournament, volleyball } from '../engine/template.ts'
 import { placementStage } from '../engine/placement.ts'
 import { swapMatches } from '../engine/reorder.ts'
-import { adminPath, Heading, Notice, ordered } from './common.tsx'
+import { adminPath, dateLabel, Heading, Notice, ordered } from './common.tsx'
 import { ScheduleTable } from './schedule.tsx'
 
 const steps = ['Turnierdaten', 'Teams', 'Spielfelder', 'Turniersystem', 'Gruppen', 'Spiele und Runden', 'Zeiten und Pausen', 'Wertung', 'Plan erzeugen', 'Prüfen und veröffentlichen']
 const shortId = (prefix: string) => `${prefix}-${crypto.randomUUID().slice(0, 8)}`
 const tieLabels: Record<Tiebreak, string> = { quotient: 'Ballpunktquotient', difference: 'Balldifferenz', headToHead: 'Direkter Vergleich', scored: 'Erzielte Ballpunkte', draw: 'Deterministischer Losentscheid' }
 const formats = { roundRobin: 'Jeder gegen jeden', balanced: 'Zielspielzahl ausgleichen', manual: 'Manuelle Begegnungen' }
+
+function PreviousTournamentTemplate({ apply }: { apply: (config: Partial<TournamentConfig>) => void }) {
+  const [items, setItems] = useState<TournamentSummary[]>()
+  const [source, setSource] = useState('')
+  const [loaded, setLoaded] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const active = useRef(false)
+  useEffect(() => {
+    active.current = true
+    let current = true
+    listTournaments().then(
+      tournaments => { if (current) setItems(tournaments) },
+      failure => { if (current) setError(errorText(failure)) },
+    )
+    return () => { current = false; active.current = false }
+  }, [])
+
+  async function load() {
+    if (!source || busy) return
+    setBusy(true)
+    setError('')
+    setLoaded('')
+    try {
+      const tournament = await readTournament(source, true)
+      if (!active.current) return
+      if (!tournament.admin) throw new Error('Dieses Turnier steht dir nicht als Vorlage zur Verfügung.')
+      const { date: _previousDate, ...template } = tournament.config
+      apply({ ...template, sport: template.sport ?? '', name: `${template.name.slice(0, 92).trimEnd()} – Kopie` })
+      setLoaded(template.name)
+    } catch (failure) {
+      if (active.current) setError(errorText(failure))
+    } finally {
+      if (active.current) setBusy(false)
+    }
+  }
+
+  return <section className="form-box template-callout">
+    <div className="form-stack">
+      <h3>Eigenes Turnier als Vorlage</h3>
+      {items?.length ? <>
+        <label>Turnier als Vorlage<select value={source} disabled={busy} onChange={event => {
+          setSource(event.target.value); setLoaded(''); setError('')
+        }}>
+          <option value="">Turnier auswählen …</option>
+          {items.map(item => <option key={item.id} value={item.id}>
+            {item.name} · {dateLabel(item.date)} · {({ draft: 'Entwurf', published: 'Veröffentlicht', archived: 'Archiviert' })[item.state]}
+          </option>)}
+        </select></label>
+        <button type="button" className="button secondary fit" disabled={busy || !source} onClick={() => void load()}>
+          <Sparkles size={16}/>{busy ? 'Vorlage wird geladen …' : 'Turnier übernehmen'}
+        </button>
+        <p className="hint">Übernimmt Teams und Einstellungen. Das gewählte Datum bleibt erhalten.</p>
+      </> : !error && <p className="hint">{items ? 'Du hast noch kein eigenes Turnier.' : 'Deine Turniere werden geladen …'}</p>}
+      {loaded && <Notice tone="success">Vorlage „{loaded}“ übernommen.</Notice>}
+      {error && <Notice>{error}</Notice>}
+    </div>
+  </section>
+}
 
 function parseTeamList(contents: string, filename: string) {
   const input = contents.replace(/^\uFEFF/, '')
@@ -140,6 +199,7 @@ export function Wizard({ existing, offline = false }: { existing?: Tournament; o
     <div className="form-grid">
       {!existing && <div className="template-callout"><span className="section-icon"><Volleyball size={23}/></span><div><strong>Vorlage Volleyball Cup</strong><p>14 Teams · 2 Felder · 49 Begegnungen</p></div>
         <button className="button secondary" onClick={() => patch(volleyball(config.date || undefined))}><Sparkles size={16}/>Vorlage laden</button></div>}
+      {!existing && <PreviousTournamentTemplate apply={patch}/>}
       <label>Turniername<input value={config.name} maxLength={100} onChange={event => patch({ name: event.target.value })}/></label>
       <label>Sportart<input value={config.sport ?? ''} maxLength={60} onChange={event => patch({ sport: event.target.value })}/></label>
       <label>Datum<input type="date" value={config.date} onChange={event => patch({ date: event.target.value })}/></label>
