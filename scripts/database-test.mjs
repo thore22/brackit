@@ -4,7 +4,8 @@ import { readFile, readdir } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import assert from 'node:assert/strict'
 import { generate } from '../src/engine/generate.ts'
-import { volleyball } from '../src/engine/template.ts'
+import { emptyTournament, volleyball } from '../src/engine/template.ts'
+import { placementStage, placementResult } from '../src/engine/placement.ts'
 import { tournamentTables } from '../src/engine/standings.ts'
 
 const db = new PGlite({ extensions: { pgcrypto } })
@@ -178,6 +179,36 @@ try {
   assert.equal(await canReport(1), false)
   assert.equal(await redeem(1, reassigned.pin), false)
   console.log('Feld-QR geprüft: Spiel- und Feldgrenzen, PIN-Sperre, Ablauf, Widerruf und Wiederverwendung.')
+
+  await actor('authenticated', user)
+  const placementConfig = emptyTournament()
+  placementConfig.stages.push(placementStage(placementConfig.stages[0], 'platzierung'))
+  const placementPlan = generate(placementConfig)
+  tour = await one('select public.cup_save_plan(null,null,$1,$2) v', placementConfig, placementPlan)
+  assert.equal((await read()).config.stages[1].placement, true)
+  await control('publish')
+  await assert.rejects(() => control('release'), /zuerst alle/)
+  const finals = placementPlan.matches.filter(match => match.stage === 'platzierung')
+  assert.equal(finals.length, 4)
+  assert.deepEqual(finals.map(match => [match.a, match.b]).sort(), [1, 2, 3, 4].map(rank => [`@a/${rank}`, `@b/${rank}`]))
+  for (const match of placementPlan.matches.filter(match => match.stage !== 'platzierung')) {
+    await game(match.id, 0, 'start')
+    await game(match.id, 1, 'submit', 24, 19)
+    await game(match.id, 2, 'confirm')
+  }
+  await control('release')
+  const finalMatch = finals.find(match => match.a === '@a/1')
+  const placementSnapshot = await read()
+  assert.notEqual(placementSnapshot.seeds[finalMatch.a], placementSnapshot.seeds[finalMatch.b])
+  assert.ok(placementSnapshot.seeds[finalMatch.a] && placementSnapshot.seeds[finalMatch.b])
+  await game(finalMatch.id, 0, 'start')
+  await assert.rejects(() => game(finalMatch.id, 1, 'submit', 20, 20), /Bei Gleichstand entscheidet der nächste Punkt/)
+  await game(finalMatch.id, 1, 'submit', 19, 24)
+  assert.equal(placementResult(finalMatch, (await read()).games.find(match => match.id === finalMatch.id).official), null)
+  await game(finalMatch.id, 2, 'confirm')
+  assert.deepEqual(placementResult(finalMatch, (await read()).games.find(match => match.id === finalMatch.id).official),
+    { winner: '@b/1', loser: '@a/1' })
+  console.log('Platzierungsspiele geprüft: Rangauflösung, Phasenfreigabe und Endplatzierung nach Bestätigung.')
 } catch (error) {
   console.error(error.message, error.detail ?? '', error.where ?? '')
   process.exitCode = 1

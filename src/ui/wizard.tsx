@@ -6,6 +6,7 @@ import type { Tournament } from '../data/types.ts'
 import { emptyGame } from '../engine/game.ts'
 import { participantLabel, rank, type Group, type Named, type Pair, type Plan, type Stage, type Tiebreak, type TournamentConfig } from '../engine/model.ts'
 import { emptyTournament, volleyball } from '../engine/template.ts'
+import { placementStage } from '../engine/placement.ts'
 import { adminPath, Heading, Notice, ordered } from './common.tsx'
 import { ScheduleTable } from './schedule.tsx'
 
@@ -54,8 +55,18 @@ export function Wizard({ existing, offline = false }: { existing?: Tournament; o
   const [saved, setSaved] = useState<{ id: string; revision: number } | null>(null)
   const worker = useRef<Worker | null>(null)
   useEffect(() => () => worker.current?.terminate(), [])
+  const placement = config.stages.find(stage => stage.placement)
+  const source = config.stages[0]
+  const canAddPlacement = config.stages.length === 1 && source?.kind === 'roundRobin' &&
+    source.groups.length === 2 && source.groups[0].members.length >= 2 &&
+    source.groups[0].members.length === source.groups[1].members.length &&
+    new Set(source.groups.flatMap(group => group.members)).size === config.teams.length
   const patch = (values: Partial<TournamentConfig>) => {
-    setConfig(value => ({ ...value, ...values }))
+    setConfig(value => {
+      const next = { ...value, ...values }
+      next.stages = next.stages.map(stage => stage.placement ? placementStage(next.stages[0], stage.id, stage.gap) : stage)
+      return next
+    })
     setPlan(null)
     setSaved(null)
     setError('')
@@ -134,7 +145,7 @@ export function Wizard({ existing, offline = false }: { existing?: Tournament; o
     </div>,
     <NameEditor kind="Spielfeld" values={config.courts} onChange={courts => patch({ courts })}/>,
     <div className="form-stack">
-      {config.stages.map((stage, index) => <div className="form-box" key={stage.id}>
+      {config.stages.filter(stage => !stage.placement).map((stage, index) => <div className="form-box" key={stage.id}>
         <div className="between"><h3>Phase {index + 1}</h3><button aria-label={`Phase ${index + 1} entfernen`} className="icon-button minimal" disabled={config.stages.length === 1} onClick={() => patch({ stages: config.stages.filter(item => item.id !== stage.id) })}><Trash2 size={17}/></button></div>
         <div className="form-grid"><label>Phasenname<input value={stage.name} onChange={event => updateStage(stage.id, { name: event.target.value })}/></label>
           <label>Turniersystem<select value={stage.kind} onChange={event => updateStage(stage.id, { kind: event.target.value as Stage['kind'] })}>
@@ -142,11 +153,11 @@ export function Wizard({ existing, offline = false }: { existing?: Tournament; o
           </select></label></div>
         <label className="checkbox"><input type="checkbox" checked={stage.carry} onChange={event => updateStage(stage.id, { carry: event.target.checked })}/>Vorrundenergebnisse für gemeinsame Quellgruppen übernehmen</label>
       </div>)}
-      <button className="button secondary fit" onClick={() => patch({ stages: [...config.stages, { id: shortId('phase'), name: `Phase ${config.stages.length + 1}`, kind: 'roundRobin', groups: [], gap: 0, rounds: 0, carry: false, extras: [] }] })}><Plus size={17}/>Phase hinzufügen</button>
+      {!placement && <button className="button secondary fit" onClick={() => patch({ stages: [...config.stages, { id: shortId('phase'), name: `Phase ${config.stages.length + 1}`, kind: 'roundRobin', groups: [], gap: 0, rounds: 0, carry: false, extras: [] }] })}><Plus size={17}/>Phase hinzufügen</button>}
     </div>,
     <div className="form-stack">
       <p className="hint">Wähle Teams oder Rangplätze aus früheren Gruppen. Die Reihenfolge der Auswahl dient als reproduzierbare Planungsgrundlage.</p>
-      {config.stages.map((stage, index) => {
+      {config.stages.filter(stage => !stage.placement).map((stage, index) => {
         const candidates = [...config.teams.map(team => team.id), ...config.stages.slice(0, index).flatMap(earlier => earlier.groups.flatMap(group => group.members.map((_, place) => rank(group.id, place + 1))))]
         const used = new Set(stage.groups.flatMap(group => group.members))
         return <div className="form-box" key={stage.id}>
@@ -165,11 +176,23 @@ export function Wizard({ existing, offline = false }: { existing?: Tournament; o
       })}
     </div>,
     <div className="form-stack">
+      <div className="form-box">
+        <h3>Platzierungsspiele nach der Vorrunde</h3>
+        <label className="checkbox"><input type="checkbox" checked={!!placement} disabled={!placement && !canAddPlacement}
+          onChange={event => patch(event.target.checked ? {
+            stages: [source, placementStage(source, shortId('platzierung'))],
+            rules: { ...config.rules, allowDraw: false },
+          } : { stages: config.stages.filter(stage => !stage.placement) })}/>Gleiche Gruppenplätze gegeneinander spielen lassen</label>
+        <p className="hint">Für zwei gleich große Jeder-gegen-jeden-Gruppen. Die Gruppenersten spielen um Platz 1 und 2, die Zweiten um Platz 3 und 4. Jedes Team spielt genau ein Platzierungsspiel. Bei diesem Format sind Unentschieden ausgeschlossen.</p>
+        {placement && <ul>{placement.extras.map(({ a, b }, index) => <li key={a}>
+          Platz {2 * index + 1} / {2 * index + 2}: {participantLabel(config, a)} – {participantLabel(config, b)}
+        </li>)}</ul>}
+      </div>
       <div className="form-grid"><label>Exakte Spiele je Team (optional)<input type="number" min={1} max={80} value={config.target ?? ''} placeholder="Durch Format bestimmt" onChange={event => patch({ target: event.target.value ? +event.target.value : null })}/></label>
         <label>Schiedsgericht<select value={config.referee} onChange={event => patch({ referee: event.target.value as TournamentConfig['referee'] })}>
           <option value="group">Spielfrei in derselben Gruppe</option><option value="available">Beliebiges spielfreies Team</option><option value="none">Externes Schiedsgericht</option>
         </select></label></div>
-      {config.stages.map(stage => <div className="form-box" key={stage.id}><h3>{stage.name}</h3>
+      {config.stages.filter(stage => !stage.placement).map(stage => <div className="form-box" key={stage.id}><h3>{stage.name}</h3>
         <label>Logische Runden (0 = automatisch)<input type="number" min={0} max={80} value={stage.rounds} onChange={event => updateStage(stage.id, { rounds: +event.target.value })}/></label>
         <p className="hint">Manuelle Begegnungen innerhalb einer Gruppe gehen in deren Tabelle ein. Begegnungen ohne Gruppe zählen zur Spielzahl und erscheinen nach den Gruppenrunden.</p>
         {stage.extras.map((pair, index) => <PairEditor key={index} pair={pair} stage={stage} config={config}
@@ -198,7 +221,7 @@ export function Wizard({ existing, offline = false }: { existing?: Tournament; o
       <label>Primäre Sortierung<select value={config.rules.primary} onChange={event => updateRules({ primary: event.target.value as TournamentConfig['rules']['primary'] })}>
         <option value="auto">Punkte pro Spiel bei ungleichen Spielzahlen</option><option value="total">Absolute Wertungspunkte</option><option value="average">Wertungspunkte pro Spiel</option>
       </select></label></div>
-      <label className="checkbox"><input type="checkbox" checked={config.rules.allowDraw} onChange={event => updateRules({ allowDraw: event.target.checked })}/>Unentschieden zulassen</label>
+      <label className="checkbox"><input type="checkbox" checked={config.rules.allowDraw} disabled={!!placement} onChange={event => updateRules({ allowDraw: event.target.checked })}/>Unentschieden zulassen</label>
       <label className="checkbox"><input type="checkbox" checked={config.rules.autoConfirm} onChange={event => updateRules({ autoConfirm: event.target.checked })}/>Ergebnisse automatisch bestätigen</label>
       <h3>Kriterien bei Gleichstand</h3><p className="hint">Die Liste wird von oben nach unten angewendet.</p>
       {config.rules.tie.map((criterion, index) => <div className="inline-edit" key={index}><label>Kriterium {index + 1}<select value={criterion} onChange={event => updateRules({ tie: config.rules.tie.map((item, i) => i === index ? event.target.value as Tiebreak : item) })}>

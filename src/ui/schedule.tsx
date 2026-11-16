@@ -4,6 +4,7 @@ import { Link } from 'react-router'
 import { clock, type Match, type Stage } from '../engine/model.ts'
 import { countdown, formatDuration, scheduledEpoch } from '../engine/game.ts'
 import { tournamentTables, type Row } from '../engine/standings.ts'
+import { placementRank, placementResult } from '../engine/placement.ts'
 import type { Tournament } from '../data/types.ts'
 import { adminPath, courtName, csvCell, download, Empty, gameOf, groupName, Heading, Notice, ordered, Status, teamName } from './common.tsx'
 
@@ -86,10 +87,36 @@ function tablePanels(stage: Stage | undefined, tv: boolean) {
   return stage?.groups.flatMap(group => Array.from({ length: tv ? Math.ceil(group.members.length / 7) : 1 }, (_, index) =>
     ({ group, offset: index * 7 }))) ?? []
 }
-export const tablePageCount = (stage: Stage | undefined) => Math.ceil(tablePanels(stage, true).length / 4)
+export const tablePageCount = (stage: Stage | undefined) =>
+  stage?.placement ? Math.ceil(stage.extras.length / 5) : Math.ceil(tablePanels(stage, true).length / 4)
+
+function PlacementTable({ tournament, stage, page }: { tournament: Tournament; stage: Stage; page?: number }) {
+  const matches = tournament.plan.matches.filter(match => match.stage === stage.id)
+    .sort((a, b) => placementRank(a) - placementRank(b))
+  const visible = page === undefined ? matches : matches.slice(page * 5, page * 5 + 5)
+  return <section className="card standings">
+    <div className="card-heading"><div className="card-title-icon"><Trophy size={18}/><h2>Endplatzierung</h2></div></div>
+    <div className="table-scroll"><table className="rank-table">
+      <thead><tr><th>Plätze</th><th>Begegnung</th><th>Ergebnis</th></tr></thead>
+      <tbody>{visible.map(match => {
+        const game = gameOf(tournament, match.id)
+        const score = game.status === 'confirmed' || game.status === 'corrected' ? game.official : null
+        const result = placementResult(match, score)
+        const place = 2 * placementRank(match) - 1
+        return <tr key={match.id}>
+          <th scope="row">{place} / {place + 1}</th>
+          <td>{result ? <><strong>{place}. {teamName(tournament, result.winner)}</strong><br/>{place + 1}. {teamName(tournament, result.loser)}</>
+            : <>{teamName(tournament, match.a)} – {teamName(tournament, match.b)}</>}</td>
+          <td>{score ? `${score.a}:${score.b}` : 'Offen'}</td>
+        </tr>
+      })}</tbody>
+    </table></div>
+  </section>
+}
 
 export function TableGrid({ tournament, phase, compact = false, page }: { tournament: Tournament; phase: string; compact?: boolean; page?: number }) {
   const stage = tournament.config.stages.find(stage => stage.id === phase)
+  if (stage?.placement) return <PlacementTable tournament={tournament} stage={stage} page={page}/>
   const results = new Map(tournament.games.flatMap(game => game.official ? [[game.id, game.official]] : []))
   const { tables } = tournamentTables(tournament.config, tournament.plan, results)
   const panels = tablePanels(stage, page !== undefined)
@@ -118,7 +145,8 @@ export function StandingsPage({ tournament, manage = false }: { tournament: Tour
       aria-pressed={(phase || tournament.config.stages[tournament.released]?.id) === stage.id}
       onClick={() => setPhase(stage.id)}>{stage.name}</button>)}</div>
     <TableGrid tournament={tournament} phase={phase || tournament.config.stages[tournament.released]?.id}/>
-    <p className="hint">Sp. = gewertete Spiele · Pkt. = Wertungspunkte · Quot. = erzielte Ballpunkte ÷ erhaltene Ballpunkte. Bei erzielten Punkten ohne Gegenpunkt ist der Quotient ∞. Bei 0:0 ist er 0.</p>
+    {!tournament.config.stages.find(stage => stage.id === (phase || tournament.config.stages[tournament.released]?.id))?.placement &&
+      <p className="hint">Sp. = gewertete Spiele · Pkt. = Wertungspunkte · Quot. = erzielte Ballpunkte ÷ erhaltene Ballpunkte. Bei erzielten Punkten ohne Gegenpunkt ist der Quotient ∞. Bei 0:0 ist er 0.</p>}
   </>
 }
 export function MatchTile({ tournament, match, now, manage = false }: { tournament: Tournament; match: Match; now: number; manage?: boolean }) {

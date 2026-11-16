@@ -2,6 +2,25 @@ import { expect, test } from '@playwright/test'
 
 test.skip(!!process.env.TEST_BASE_URL, 'Lokaler Betrieb')
 
+test('Der Assistent generiert und veröffentlicht Platzierungsspiele für gleiche Vorrundenränge', async ({ page }) => {
+  await page.goto('/neu')
+  await page.getByLabel('Turniername').fill('Platzierungs-Cup')
+  await page.getByRole('button', { name: /5 Gruppen/ }).click()
+  await page.getByRole('button', { name: 'Weiter' }).click()
+  await page.getByLabel('Gleiche Gruppenplätze gegeneinander spielen lassen').check()
+  await expect(page.getByText('Platz 1 / 2: 1. Gruppe A – 1. Gruppe B')).toBeVisible()
+  await page.getByRole('button', { name: /9 Plan erzeugen/ }).click()
+  await page.getByRole('button', { name: 'Spielplan generieren' }).click()
+  await expect(page.getByText(/16 Begegnungen ·/)).toBeVisible()
+  await page.getByRole('button', { name: 'Weiter' }).click()
+  await page.getByRole('button', { name: 'Veröffentlichen', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Platzierungs-Cup', exact: true })).toBeVisible()
+  await page.getByRole('link', { name: 'Tabellen', exact: true }).first().click()
+  await page.getByRole('button', { name: 'Platzierungsspiele', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Endplatzierung' })).toBeVisible()
+  await expect(page.getByRole('row', { name: /1 \/ 2 1\. Gruppe A – 1\. Gruppe B Offen/ })).toBeVisible()
+})
+
 test('Turnierfarben gelten auf allen Ansichten und lassen sich zurücksetzen', async ({ page, context }) => {
   await page.goto('/admin/volleyball-cup/einstellungen')
   const live = await context.newPage()

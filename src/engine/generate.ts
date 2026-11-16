@@ -3,6 +3,7 @@ import { allPairs, chooseDegrees, roundColor, roundRobin } from './pairings.ts'
 import { configSchema } from './schema.ts'
 import { pack, type ScheduledPair } from './slots.ts'
 import { validateSchedule } from './validate.ts'
+import { placementStage } from './placement.ts'
 
 const unique = (values: string[], label: string) => {
   if (values.length !== new Set(values).size) throw new ScheduleError(`${label} dürfen nicht doppelt vorkommen.`)
@@ -12,6 +13,23 @@ export function generate(input: TournamentConfig): Plan {
   const parsed = configSchema.safeParse(input)
   if (!parsed.success) throw new ScheduleError(`Ungültige Konfiguration (${parsed.error.issues[0].path.join('.')}). Bitte Eingaben prüfen.`)
   const config = parsed.data
+  for (const stage of config.stages.filter(stage => stage.placement)) {
+    const source = config.stages[0]
+    if (config.stages.length !== 2 || config.stages[1] !== stage || source.kind !== 'roundRobin' ||
+      source.groups.length !== 2 || source.groups[0].members.length !== source.groups[1].members.length ||
+      source.groups.flatMap(group => group.members).length !== config.teams.length) {
+      throw new ScheduleError('Platzierungsspiele benötigen eine Vorrunde mit zwei gleich großen Jeder-gegen-jeden-Gruppen, die alle Teams enthalten.')
+    }
+    if (config.rules.allowDraw) throw new ScheduleError('Für Platzierungsspiele muss das Turnier Unentschieden ausschließen.')
+    const expected = placementStage(source, stage.id, stage.gap)
+    if (stage.kind !== 'manual' || stage.rounds !== 0 || stage.carry ||
+      stage.groups.length !== expected.groups.length || stage.groups.some((group, index) =>
+        group.members.join('|') !== expected.groups[index].members.join('|')) ||
+      stage.extras.length !== expected.extras.length || stage.extras.some((pair, index) =>
+        pair.a !== expected.extras[index].a || pair.b !== expected.extras[index].b || pair.group || pair.round)) {
+      throw new ScheduleError('Die Platzierungsspiele müssen genau einmal dieselben Vorrundenränge gegeneinander ansetzen.')
+    }
+  }
   unique(config.teams.map(team => team.id), 'Teamkennungen')
   unique(config.courts.map(court => court.id), 'Feldkennungen')
   unique(config.stages.map(stage => stage.id), 'Phasenkennungen')
