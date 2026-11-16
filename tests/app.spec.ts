@@ -26,6 +26,15 @@ test('Der Assistent generiert und veröffentlicht Platzierungsspiele für gleich
   await page.getByRole('button', { name: 'Platzierungsspiele', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Endplatzierung' })).toBeVisible()
   await expect(page.getByRole('row', { name: /1 \/ 2 1\. Gruppe A – 1\. Gruppe B Offen/ })).toBeVisible()
+  await page.goto('/neu')
+  await page.getByLabel('Datum', { exact: true }).fill('2027-08-15')
+  await page.getByLabel('Turnier als Vorlage').selectOption({ label: await page.getByRole('option', { name: /Platzierungs-Cup/ }).innerText() })
+  await page.getByRole('button', { name: 'Turnier übernehmen' }).click()
+  await expect(page.getByLabel('Turniername')).toHaveValue('Platzierungs-Cup – Kopie')
+  await expect(page.getByLabel('Datum', { exact: true })).toHaveValue('2027-08-15')
+  await page.getByRole('button', { name: /6 Spiele und Runden/ }).click()
+  await expect(page.getByLabel('Gleiche Gruppenplätze gegeneinander spielen lassen')).toBeChecked()
+  await expect(page.getByRole('button', { name: /10 Prüfen und veröffentlichen/ })).toBeDisabled()
 })
 
 test('Turnierfarben gelten auf allen Ansichten und lassen sich zurücksetzen', async ({ page, context }) => {
