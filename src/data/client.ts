@@ -13,6 +13,10 @@ export const connected = !!supabase
 const knownErrors: Record<string, string> = {
   invalid_credentials: 'E-Mail oder Passwort ist ungültig.',
   email_not_confirmed: 'Bestätige die E-Mail-Adresse dieses Kontos.',
+  signup_disabled: 'Die Registrierung ist derzeit geschlossen.',
+  email_address_not_authorized: 'Die E-Mail konnte nicht zugestellt werden. Wende dich an die Kontoverwaltung.',
+  over_email_send_rate_limit: 'Es wurden zu viele E-Mails angefordert. Versuche es später erneut.',
+  weak_password: 'Wähle ein längeres und stärkeres Passwort.',
   anonymous_provider_disabled: 'Der Schiedsrichterzugang wurde in Supabase noch nicht aktiviert.',
   over_request_rate_limit: 'Zu viele Anfragen. Versuche es in Kürze erneut.',
   '42501': 'Für diese Aktion fehlt die Berechtigung.',
@@ -36,6 +40,13 @@ async function rpc<T>(name: string, args?: Record<string, unknown>): Promise<T> 
   if (error) throw error
   return data as T
 }
+
+export type OrganizerStatus = { state: 'approved' | 'pending' | 'rejected'; reviewer: boolean }
+export type OrganizerRequest = { id: string; email: string; createdAt: string }
+export const organizerStatus = () => rpc<OrganizerStatus>('cup_organizer_status')
+export const pendingOrganizers = () => rpc<OrganizerRequest[]>('cup_pending_organizers')
+export const reviewOrganizer = (applicant: string, decision: 'approved' | 'rejected') =>
+  rpc('cup_review_organizer', { applicant, decision })
 
 export function readCached(id: string): Tournament | null {
   try { return JSON.parse(localStorage.getItem(cacheKey(id)) ?? 'null') } catch { return null }
