@@ -21,6 +21,9 @@ export function generate(input: TournamentConfig): Plan {
       throw new ScheduleError('Platzierungsspiele benötigen eine Vorrunde mit zwei gleich großen Jeder-gegen-jeden-Gruppen, die alle Teams enthalten.')
     }
     if (config.rules.allowDraw) throw new ScheduleError('Für Platzierungsspiele muss das Turnier Unentschieden ausschließen.')
+    if (source.extras.some(pair => !pair.group)) {
+      throw new ScheduleError('Vor den Platzierungsspielen sind nur Begegnungen innerhalb der Vorrundengruppen erlaubt.')
+    }
     const expected = placementStage(source, stage.id, stage.gap)
     if (stage.kind !== 'manual' || stage.rounds !== 0 || stage.carry ||
       stage.groups.length !== expected.groups.length || stage.groups.some((group, index) =>
@@ -65,6 +68,8 @@ export function generate(input: TournamentConfig): Plan {
   let slotNumber = 0
 
   for (const stage of config.stages) {
+    const mixedGroups = config.stages[1]?.placement && stage === config.stages[0]
+      ? [stage.groups[0].id, stage.groups[1].id] as const : undefined
     const roster = stage.groups.flatMap(group => group.members)
     unique(roster, `Teilnehmer in „${stage.name}“`)
     for (const member of roster) {
@@ -162,7 +167,7 @@ export function generate(input: TournamentConfig): Plan {
         const bye = stage.rounds && stage.kind === 'balanced'
           ? group.members.filter(member => sameRound.every(candidate => candidate.a !== member && candidate.b !== member))
           : undefined
-        roundBatches[stage.rounds ? (pair.round ?? 1) - 1 : 0].push(register(pair, group, stage.kind === 'balanced' ? lane : undefined, bye))
+        roundBatches[stage.rounds ? (pair.round ?? 1) - 1 : 0].push(register(pair, group, stage.kind === 'balanced' || mixedGroups ? lane : undefined, bye))
       }
       const full = pairs.length === group.members.length * (group.members.length - 1) / 2
       prior.set(group.id, {
@@ -182,9 +187,9 @@ export function generate(input: TournamentConfig): Plan {
     }
     unique([...roundBatches.flat(), ...crossovers].map(pair => keyOf(pair.a, pair.b)), `Paarungen in „${stage.name}“`)
     const extraRounds = new Map<number, ScheduledPair[]>()
-    for (const pair of crossovers) {
-      const round = pair.round ?? stage.rounds + 1
-      extraRounds.set(round, [...(extraRounds.get(round) ?? []), register({ ...pair, round }, undefined)])
+    for (const [index, pair] of crossovers.entries()) {
+      const round = stage.placement ? crossovers.length - index : pair.round ?? stage.rounds + 1
+      extraRounds.set(round, [...(extraRounds.get(round) ?? []), register({ ...pair, round: stage.placement ? 1 : round }, undefined)])
     }
     for (const round of [...extraRounds.keys()].sort((a, b) => a - b)) roundBatches.push(extraRounds.get(round)!)
     if (!roundBatches.flat().length) throw new ScheduleError(`„${stage.name}“ enthält keine Spiele.`)
@@ -195,7 +200,9 @@ export function generate(input: TournamentConfig): Plan {
       const max = Math.min(batch.length, Math.floor((deadline - time) / block))
       if (batch.some(pair => config.referee !== 'none' && pair.refs.length === 0)) throw new ScheduleError(`Für eine Begegnung in „${stage.name}“ fehlt ein spielfreies Pfeif-Team. Ändere die Schiedsrichterregel oder die Rundenzahl.`)
       let packed: ReturnType<typeof pack> = null
-      for (let count = lower; count <= max && !packed; count++) packed = pack(batch, config, count, budget, usage)
+      for (let count = lower; count <= max && !packed; count++) {
+        packed = pack(batch, config, count, budget, usage, batch.every(pair => pair.group) ? mixedGroups : undefined)
+      }
       if (!packed) throw new ScheduleError(`„${stage.name}“ passt mit den Feld- und Schiedsrichterregeln nicht in das Zeitfenster. Ergänze Zeit oder lockere die Schiedsrichterregel.`)
       for (const slot of packed) {
         for (const pause of breaks) if (time < pause.end && time + block > pause.start) time = pause.end

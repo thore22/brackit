@@ -225,7 +225,7 @@ try {
   await assert.rejects(() => control('release'), /zuerst alle/)
   const finals = placementPlan.matches.filter(match => match.stage === 'platzierung')
   assert.equal(finals.length, 4)
-  assert.deepEqual(finals.map(match => [match.a, match.b]).sort(), [1, 2, 3, 4].map(rank => [`@a/${rank}`, `@b/${rank}`]))
+  assert.deepEqual(finals.map(match => [match.a, match.b]), [4, 3, 2, 1].map(rank => [`@a/${rank}`, `@b/${rank}`]))
   for (const match of placementPlan.matches.filter(match => match.stage !== 'platzierung')) {
     await game(match.id, 0, 'start')
     await game(match.id, 1, 'submit', 24, 19)

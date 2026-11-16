@@ -245,6 +245,9 @@ td small, .timeline-row small { display: block; margin-top: 2px; font-size: .68r
 .field-tag { display: inline-block; white-space: nowrap; padding: 3px 7px; border-radius: 6px; background: var(--soft); border: 1px solid var(--border); font-size: .71rem; font-weight: 660; }
 .schedule-table th, .schedule-table td { padding: 9px 11px; }
 .schedule-table td:last-child .icon-button { width: 30px; height: 30px; }
+.schedule-table .schedule-grip { cursor: grab; }
+.schedule-table .schedule-grip:active { cursor: grabbing; }
+.schedule-table tr.schedule-swap-active > td { background: var(--active); }
 .dashboard-grid .schedule-table td:nth-child(5), .dashboard-grid .schedule-table td:nth-child(3) { min-width: 78px; }
 .filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 15px 18px; border-bottom: 1px solid var(--border); }
 .filter-control { display: grid; gap: 5px; min-width: 0; }
