@@ -32,16 +32,51 @@ try {
   await db.exec(`
     create role anon; create role authenticated;
     create schema auth;
-    create table auth.users(id uuid primary key);
+    create table auth.users(id uuid primary key, email text, email_confirmed_at timestamptz,
+      is_anonymous boolean not null default false, created_at timestamptz not null default now());
     create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
     create function auth.jwt() returns jsonb language sql stable as $$select nullif(current_setting('request.jwt.claims',true),'')::jsonb$$;
     create publication supabase_realtime;
   `)
-  await query('insert into auth.users values ($1),($2)', [user, referee])
+  await query("insert into auth.users(id,email,email_confirmed_at,is_anonymous) values ($1,'organizer@example.test',now(),false),($2,null,null,true)", [user, referee])
   for (const file of (await readdir(directory)).sort()) {
     await db.exec(await readFile(new URL(file, directory), 'utf8'))
     console.log('Migration geprüft:', file)
   }
+  const applicant = randomUUID()
+  const rejected = randomUUID()
+  const unverified = randomUUID()
+  await query("insert into auth.users(id,email,email_confirmed_at) values ($1,'new@example.test',now()),($2,'rejected@example.test',now()),($3,'unverified@example.test',null)",
+    [applicant, rejected, unverified])
+  const access = () => one('select public.cup_organizer_status() v')
+  const pending = () => one('select public.cup_pending_organizers() v')
+  const review = (id, decision) => one('select public.cup_review_organizer($1,$2) v', id, decision)
+  await actor('authenticated', applicant)
+  assert.deepEqual(await access(), { state: 'pending', reviewer: false })
+  await assert.rejects(() => save(null, null), /noch nicht .* freigegeben/)
+  await assert.rejects(() => one('select public.cup_save_plan_internal(null,null,$1,$2) v', config, plan), /permission denied/)
+  await assert.rejects(() => review(applicant, 'approved'), /Nur die Kontoverwaltung/)
+  await assert.rejects(pending, /Nur die Kontoverwaltung/)
+  await actor('authenticated', user)
+  assert.deepEqual(await access(), { state: 'approved', reviewer: false })
+  await assert.rejects(pending, /Nur die Kontoverwaltung/)
+  await actor('postgres')
+  await query('update public.organizer_access set is_reviewer=true where user_id=$1', [user])
+  await actor('authenticated', user)
+  assert.deepEqual((await pending()).map(item => item.id).sort(), [applicant, rejected].sort())
+  await assert.rejects(() => review(unverified, 'approved'), /nicht mehr offen/)
+  await review(applicant, 'approved')
+  await review(rejected, 'rejected')
+  await assert.rejects(() => review(applicant, 'rejected'), /nicht mehr offen/)
+  assert.deepEqual(await pending(), [])
+  await actor('authenticated', rejected)
+  assert.deepEqual(await access(), { state: 'rejected', reviewer: false })
+  await assert.rejects(() => save(null, null), /noch nicht .* freigegeben/)
+  await actor('authenticated', applicant)
+  assert.deepEqual(await access(), { state: 'approved', reviewer: false })
+  const applicantTournament = await save(null, null)
+  assert.equal(await one('select public.cup_is_admin($1) v', applicantTournament), true)
+  console.log('Kontofreigabe geprüft: Anmeldung ohne Verwaltung, getrennte Prüfrechte und serverseitige Freigabe.')
   await actor('authenticated', user)
   tour = await save(null, null)
   await save(tour, (await read()).revision)

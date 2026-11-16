@@ -14,6 +14,7 @@ import { GamePanel } from './game-panel.tsx'
 import { CourtReportPage, LivePage, PublicHeader, ReportPage, TVPage } from './public.tsx'
 import { SchedulePage, StandingsPage } from './schedule.tsx'
 import { Wizard } from './wizard.tsx'
+import { OrganizerRequests, useOrganizerAccess } from './organizers.tsx'
 
 const QRPage = lazy(() => import('./qr.tsx'))
 const sections = [
@@ -39,6 +40,7 @@ function useAuth() {
 export function App() {
   const session = useAuth()
   const signedIn = !!session && !session.user.is_anonymous
+  const { result: access, refresh: refreshAccess } = useOrganizerAccess(signedIn ? session.user.id : undefined)
   const location = useLocation()
   const { needRefresh: [update], updateServiceWorker } = useRegisterSW()
   const [dark, setDark] = useState(() => localStorage.getItem('turnierleitung.theme') === 'dark' ||
@@ -50,14 +52,28 @@ export function App() {
     setDark(!dark)
   } }
   const workspace = (child: ReactNode) => <Shell theme={theme} session={session}>{child}</Shell>
-  const guard = (child: ReactNode) => connected && !signedIn
-    ? session === undefined ? workspace(<Loading/>) : workspace(<Login/>) : child
+  const guard = (child: ReactNode) => {
+    if (!connected || access?.status?.state === 'approved') return child
+    if (session === undefined || (signedIn && !access)) return workspace(<Loading/>)
+    if (!signedIn) return workspace(<Login/>)
+    return workspace(<>
+      <Heading eyebrow="Administration" title={access?.failure ? 'Kontostatus nicht verfügbar' :
+        access?.status?.state === 'rejected' ? 'Kontoantrag abgelehnt' : 'Freigabe ausstehend'}/>
+      <Notice tone={access?.failure ? 'error' : 'info'}>{access?.failure ??
+        (access?.status?.state === 'rejected' ? 'Die Kontoverwaltung hat deinen Antrag abgelehnt.' :
+          'Die Kontoverwaltung muss dein Konto freigeben, bevor du Turniere verwalten kannst.')}</Notice>
+      <div className="button-row">
+        <button className="button secondary" onClick={refreshAccess}>Status aktualisieren</button>
+        <button className="button secondary" onClick={() => void supabase?.auth.signOut()}>Abmelden</button>
+      </div>
+    </>)
+  }
   return <>
     <a className="skip-link" href="#inhalt">Zum Inhalt</a>
     <Routes>
       <Route path="/" element={<LaunchRoute/>}/>
       <Route path="/start" element={<StartPage/>}/>
-      <Route path="/turniere" element={guard(workspace(<TournamentList/>))}/>
+      <Route path="/turniere" element={guard(workspace(<TournamentList canReview={!!access?.status?.reviewer}/>))}/>
       <Route path="/neu" element={guard(workspace(<Wizard/>))}/>
       <Route path="/admin/:id/*" element={guard(<AdminRoute theme={theme} session={session}/>)}/>
       <Route path="/t/:id/:screen" element={<PublicRoute/>}/>
@@ -289,31 +305,48 @@ function PublicTournament({ id, screen, court }: { id: string; screen?: string; 
 function Loading() { return <div className="card"><Empty title="Turnierstand wird geladen …"/></div> }
 
 function Login() {
+  const [register, setRegister] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [failure, setFailure] = useState('')
+  const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   async function login(event: FormEvent) {
     event.preventDefault()
-    setBusy(true); setFailure('')
+    setBusy(true); setFailure(''); setMessage('')
     try {
-      const { error } = await supabase!.auth.signInWithPassword({ email, password })
+      const credentials = { email: email.trim(), password }
+      const { error } = register ? await supabase!.auth.signUp(credentials) :
+        await supabase!.auth.signInWithPassword(credentials)
       if (error) throw error
+      if (register) {
+        setPassword('')
+        setRegister(false)
+        setMessage('Falls die Adresse registriert werden kann, erhältst du eine Bestätigungs-E-Mail. Danach prüft die Kontoverwaltung deine Registrierung.')
+      }
     } catch (error) { setFailure(errorText(error)) }
     finally { setBusy(false) }
   }
   return <>
-    <Heading eyebrow="Administration" title="Turnierleitung anmelden" subtitle="Melde dich mit deinem eingerichteten Supabase-Konto an."/>
+    <Heading eyebrow="Administration" title={register ? 'Konto erstellen' : 'Turnierleitung anmelden'}
+      subtitle={register ? 'Bestätige deine E-Mail-Adresse und warte auf die Freigabe deines Kontos.' : 'Melde dich mit deinem Konto für die Turnierverwaltung an.'}/>
     <section className="card login-card"><form className="card-body form-stack" onSubmit={login}>
       <label>E-Mail<input autoComplete="username" type="email" required value={email} onChange={event => setEmail(event.target.value)}/></label>
-      <label>Passwort<input autoComplete="current-password" type="password" required value={password} onChange={event => setPassword(event.target.value)}/></label>
+      <label>Passwort<input autoComplete={register ? 'new-password' : 'current-password'} type="password" required minLength={register ? 8 : undefined}
+        value={password} onChange={event => setPassword(event.target.value)}/></label>
       {failure && <Notice>{failure}</Notice>}
-      <button className="button primary fit" disabled={busy}><LogIn size={17}/>Anmelden</button>
+      {message && <Notice tone="info">{message}</Notice>}
+      <div className="button-row">
+        <button className="button primary fit" disabled={busy}><LogIn size={17}/>{register ? 'Registrierung absenden' : 'Anmelden'}</button>
+        <button className="button secondary" type="button" disabled={busy} onClick={() => {
+          setRegister(value => !value); setPassword(''); setFailure(''); setMessage('')
+        }}>{register ? 'Zur Anmeldung' : 'Konto erstellen'}</button>
+      </div>
     </form></section>
   </>
 }
 const names = { draft: 'Entwurf', published: 'Veröffentlicht', archived: 'Archiviert' }
-function TournamentList() {
+function TournamentList({ canReview }: { canReview: boolean }) {
   const [items, setItems] = useState<TournamentSummary[] | null>(null)
   const [failure, setFailure] = useState('')
   useEffect(() => {
@@ -324,6 +357,7 @@ function TournamentList() {
   return <>
     <Heading eyebrow="Verwaltung" title="Meine Turniere" subtitle="Öffne deine Turniere oder lege ein neues Format an."
       actions={<Link className="button primary" to="/neu"><Plus size={18}/>Neues Turnier</Link>}/>
+    {canReview && <OrganizerRequests/>}
     {!connected && <Notice tone="info">Der lokale Arbeitsplatz speichert Daten in diesem Browser. Verbinde Supabase, um Turniere geräteübergreifend zu betreiben.</Notice>}
     {failure && <Notice>{failure}</Notice>}
     {!items && !failure && <Loading/>}

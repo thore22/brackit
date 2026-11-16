@@ -50,6 +50,24 @@ supabase status
 
 Die Migration legt `tournaments` in die Publikation `supabase_realtime`. Clients abonnieren die Turnierrevision und lesen nach einer Änderung einen konsistenten Datenbank-Snapshot. Die App liest außerdem nach Wiederverbindung, Fensterfokus und periodisch nach. Schreibvorgänge prüfen Auth-Rolle, Turnierzustand und erwartete Version. Spieloperationen protokollieren ihren Anfrage-UUID für idempotente Wiederholungen. Direktes Schreiben in die Tabellen ist für Browserrollen gesperrt. [Supabase Realtime](https://supabase.com/docs/guides/realtime/postgres-changes), [Supabase Auth für anonyme Benutzer](https://supabase.com/docs/guides/auth/auth-anonymous)
 
+### Registrierung mit Freigabe
+
+Wende die Migration `202611160001_organizer_approval.sql` vor dem Frontend-Deployment an. Bei der Migration behalten bereits bestätigte E-Mail-Konten ihren bisherigen Zugang. Neue Konten dürfen erst nach Freigabe Turniere anlegen oder verwalten.
+
+Für den gehosteten Betrieb aktiviere E-Mail-Registrierung und **Confirm email** in Supabase Auth. Richte [Custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp) ein, damit die Bestätigungs-E-Mails auch Nutzer außerhalb des Supabase-Projektteams erreichen. Hinterlege die öffentliche Brackit-Adresse als Site URL. Teste die Registrierung mit einem eigenen Testkonto, bevor du sie weitergibst.
+
+Kopiere unter **Authentication → Users** die UUID deines bestätigten Brackit-Kontos. Führe im Supabase SQL Editor einmalig die folgende Anweisung aus und ersetze den Platzhalter durch diese UUID:
+
+```sql
+insert into public.organizer_access (user_id, decision, is_reviewer)
+select id, 'approved', true from auth.users
+where id = 'DEINE-BRACKIT-BENUTZER-UUID'::uuid
+  and not is_anonymous and email_confirmed_at is not null
+on conflict (user_id) do update set decision = 'approved', is_reviewer = true;
+```
+
+Danach erscheinen bestätigte Registrierungen bei dir unter **Meine Turniere → Kontoanträge**. Neue Organisatoren können sich nach Bestätigung ihrer E-Mail anmelden und ihren Status prüfen. Sobald du das Konto freigibst, können sie eigene Turniere verwalten. Der Schiedsrichterzugang per PIN verwendet weiterhin separate Spielberechtigungen.
+
 ### Deployment und PWA
 
 Baue die App mit den beiden Supabase-Variablen und stelle `dist/` über HTTPS bereit. Der Host muss Pfade wie `/t/<id>/live`, `/feld/<id>` und `/admin/<id>` an `index.html` weiterleiten. Vorhandene Dateien wie `sw.js`, das Manifest und die Icons müssen direkt ausgeliefert werden. Die App erwartet Bereitstellung im Root-Pfad der Domain. Hinterlege die öffentliche URL in den Supabase-Auth-Einstellungen. Erzeuge die QR-Codes auf der URL, die Smartphones in der Halle tatsächlich erreichen.
