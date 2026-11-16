@@ -10,6 +10,7 @@ export interface Stage extends Named {
   gap: number
   carry: boolean
   extras: Pair[]
+  placement?: boolean
 }
 export interface TournamentConfig {
   name: string

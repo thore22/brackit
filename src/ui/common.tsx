@@ -5,6 +5,7 @@ import { connected, errorText, readCached, readTournament, watchTournament } fro
 import { final, type Tournament } from '../data/types.ts'
 import { emptyGame, statusLabel, type GameState } from '../engine/game.ts'
 import { participantLabel, type Match } from '../engine/model.ts'
+import { placementRank } from '../engine/placement.ts'
 
 export const adminPath = (id: string) => `/admin/${id}`
 export const publicPath = (id: string, page = 'live') => `/t/${id}/${page}`
@@ -15,7 +16,9 @@ export function teamName(tournament: Tournament, value: string | null) {
 }
 export const courtName = (tournament: Tournament, id: string) => tournament.config.courts.find(court => court.id === id)?.name ?? id
 export const groupName = (tournament: Tournament, match: Match) =>
-  tournament.config.stages.flatMap(stage => stage.groups).find(group => group.id === match.group)?.name ?? 'Crossover'
+  tournament.config.stages.some(stage => stage.id === match.stage && stage.placement)
+    ? `Platz ${2 * placementRank(match) - 1} / ${2 * placementRank(match)}`
+    : tournament.config.stages.flatMap(stage => stage.groups).find(group => group.id === match.group)?.name ?? 'Crossover'
 export const gameOf = (tournament: Tournament, id: number) => tournament.games.find(game => game.id === id) ?? emptyGame(id)
 export const stageName = (tournament: Tournament) => tournament.config.stages[tournament.released]?.name ?? 'Turniertag'
 export const ordered = (matches: Match[]) => [...matches].sort((a, b) => a.slot - b.slot || a.id - b.id)

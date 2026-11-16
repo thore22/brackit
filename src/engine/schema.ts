@@ -13,6 +13,7 @@ export const configSchema = z.object({
   teams: z.array(named).min(2).max(80), courts: z.array(named).min(1).max(16),
   stages: z.array(named.extend({
     kind: z.enum(['roundRobin', 'balanced', 'manual']),
+    placement: z.boolean().optional(),
     groups: z.array(named.extend({ members: z.array(seed).min(2).max(32) })).min(1).max(32),
     rounds: z.number().int().min(0).max(80),
     gap: z.number().int().min(0).max(240), carry: z.boolean(),
