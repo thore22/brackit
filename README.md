@@ -54,7 +54,7 @@ Die Migration legt `tournaments` in die Publikation `supabase_realtime`. Clients
 
 Wende die Migration `202611160001_organizer_approval.sql` vor dem Frontend-Deployment an. Bei der Migration behalten bereits bestätigte E-Mail-Konten ihren bisherigen Zugang. Neue Konten dürfen erst nach Freigabe Turniere anlegen oder verwalten.
 
-Für den gehosteten Betrieb aktiviere E-Mail-Registrierung und **Confirm email** in Supabase Auth. Richte [Custom SMTP](https://supabase.com/docs/guides/auth/auth-smtp) ein, damit die Bestätigungs-E-Mails auch Nutzer außerhalb des Supabase-Projektteams erreichen. Hinterlege die öffentliche Brackit-Adresse als Site URL. Teste die Registrierung mit einem eigenen Testkonto, bevor du sie weitergibst.
+Für die Registrierung ohne E-Mail-Versand aktiviere E-Mail-Registrierung in Supabase Auth und deaktiviere **Confirm email** unter **Authentication → Sign In / Providers**. Supabase legt direkt eine Sitzung an. Die angegebene E-Mail-Adresse dient als Anmeldename und wird dabei nicht auf Inhaberschaft geprüft. Gib deshalb nur Konten von Personen frei, die du zuordnen kannst. Eine Passwortwiederherstellung per E-Mail benötigt weiterhin [E-Mail-Versand über Supabase](https://supabase.com/docs/guides/auth/auth-smtp).
 
 Kopiere unter **Authentication → Users** die UUID deines bestätigten Brackit-Kontos. Führe im Supabase SQL Editor einmalig die folgende Anweisung aus und ersetze den Platzhalter durch diese UUID:
 
@@ -66,7 +66,7 @@ where id = 'DEINE-BRACKIT-BENUTZER-UUID'::uuid
 on conflict (user_id) do update set decision = 'approved', is_reviewer = true;
 ```
 
-Danach erscheinen bestätigte Registrierungen bei dir unter **Meine Turniere → Kontoanträge**. Neue Organisatoren können sich nach Bestätigung ihrer E-Mail anmelden und ihren Status prüfen. Sobald du das Konto freigibst, können sie eigene Turniere verwalten. Der Schiedsrichterzugang per PIN verwendet weiterhin separate Spielberechtigungen.
+Danach erscheinen Registrierungen bei dir unter **Meine Turniere → Kontoanträge**. Neue Organisatoren sehen nach der Registrierung **Freigabe ausstehend**. Sobald du das Konto freigibst, können sie eigene Turniere verwalten. Der Schiedsrichterzugang per PIN verwendet weiterhin separate Spielberechtigungen.
 
 ### Deployment und PWA
 

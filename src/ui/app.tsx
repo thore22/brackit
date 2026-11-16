@@ -316,20 +316,22 @@ function Login() {
     setBusy(true); setFailure(''); setMessage('')
     try {
       const credentials = { email: email.trim(), password }
-      const { error } = register ? await supabase!.auth.signUp(credentials) :
+      const { data, error } = register ? await supabase!.auth.signUp(credentials) :
         await supabase!.auth.signInWithPassword(credentials)
       if (error) throw error
       if (register) {
         setPassword('')
         setRegister(false)
-        setMessage('Falls die Adresse registriert werden kann, erhältst du eine Bestätigungs-E-Mail. Danach prüft die Kontoverwaltung deine Registrierung.')
+        if (!data.session) {
+          setMessage('Falls die Adresse registriert werden kann, erhältst du eine Bestätigungs-E-Mail. Danach prüft die Kontoverwaltung deine Registrierung.')
+        }
       }
     } catch (error) { setFailure(errorText(error)) }
     finally { setBusy(false) }
   }
   return <>
     <Heading eyebrow="Administration" title={register ? 'Konto erstellen' : 'Turnierleitung anmelden'}
-      subtitle={register ? 'Bestätige deine E-Mail-Adresse und warte auf die Freigabe deines Kontos.' : 'Melde dich mit deinem Konto für die Turnierverwaltung an.'}/>
+      subtitle={register ? 'Erstelle ein Konto und warte auf die Freigabe durch die Kontoverwaltung.' : 'Melde dich mit deinem Konto für die Turnierverwaltung an.'}/>
     <section className="card login-card"><form className="card-body form-stack" onSubmit={login}>
       <label>E-Mail<input autoComplete="username" type="email" required value={email} onChange={event => setEmail(event.target.value)}/></label>
       <label>Passwort<input autoComplete={register ? 'new-password' : 'current-password'} type="password" required minLength={register ? 8 : undefined}

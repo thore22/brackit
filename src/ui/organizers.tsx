@@ -60,7 +60,7 @@ export function OrganizerRequests() {
       {failure && <Notice>{failure}</Notice>}
       {message && <Notice tone="success">{message}</Notice>}
       {!requests && !failure && <p>Anträge werden geladen …</p>}
-      {requests?.length === 0 && <p>Keine offenen Anträge mit bestätigter E-Mail-Adresse.</p>}
+      {requests?.length === 0 && <p>Keine offenen Kontoanträge.</p>}
       {requests?.map(request => <div className="form-box" key={request.id}>
         <strong>{request.email}</strong>
         <div className="button-row">
