@@ -202,7 +202,7 @@ try {
   assert.notEqual(placementSnapshot.seeds[finalMatch.a], placementSnapshot.seeds[finalMatch.b])
   assert.ok(placementSnapshot.seeds[finalMatch.a] && placementSnapshot.seeds[finalMatch.b])
   await game(finalMatch.id, 0, 'start')
-  await assert.rejects(() => game(finalMatch.id, 1, 'submit', 20, 20), /Unentschieden/)
+  await assert.rejects(() => game(finalMatch.id, 1, 'submit', 20, 20), /Bei Gleichstand entscheidet der nächste Punkt/)
   await game(finalMatch.id, 1, 'submit', 19, 24)
   assert.equal(placementResult(finalMatch, (await read()).games.find(match => match.id === finalMatch.id).official), null)
   await game(finalMatch.id, 2, 'confirm')
