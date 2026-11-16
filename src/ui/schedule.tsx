@@ -1,5 +1,5 @@
 import { useId, useState } from 'react'
-import { ArrowRight, Download, Pencil, Printer, Timer, Trophy, Users } from 'lucide-react'
+import { ArrowRight, Download, GripVertical, Pencil, Printer, Timer, Trophy, Users } from 'lucide-react'
 import { Link } from 'react-router'
 import { clock, type Match, type Stage } from '../engine/model.ts'
 import { countdown, formatDuration, scheduledEpoch } from '../engine/game.ts'
@@ -8,14 +8,37 @@ import { placementRank, placementResult } from '../engine/placement.ts'
 import type { Tournament } from '../data/types.ts'
 import { adminPath, courtName, csvCell, download, Empty, gameOf, groupName, Heading, Notice, ordered, Status, teamName } from './common.tsx'
 
-export function ScheduleTable({ tournament, matches, manage = false }: { tournament: Tournament; matches: Match[]; manage?: boolean }) {
+export function ScheduleTable({ tournament, matches, manage = false, swap }: {
+  tournament: Tournament; matches: Match[]; manage?: boolean; swap?: (first: number, second: number) => void
+}) {
+  const [selected, setSelected] = useState<number | null>(null)
+  const [dragged, setDragged] = useState<number | null>(null)
+  const [target, setTarget] = useState<number | null>(null)
+  const stopDrag = () => { setDragged(null); setTarget(null) }
+  const canSwap = (match: Match) => !!swap && !tournament.config.stages.some(stage => stage.id === match.stage && stage.placement)
   return matches.length ? <div className="table-scroll"><table className="schedule-table"><thead><tr>
     <th scope="col">Spiel</th><th scope="col">Beginn</th><th scope="col">Begegnung</th><th scope="col">Feld</th><th scope="col">Pfeif-Team</th><th scope="col">Status</th>{manage && <th scope="col"><span className="sr-only">Bearbeiten</span></th>}
+    {swap && <th scope="col"><span className="sr-only">Spielreihenfolge</span></th>}
   </tr></thead><tbody>
     {matches.map(match => {
       const game = gameOf(tournament, match.id)
       const score = game.official ?? game.live
-      return <tr key={match.id}>
+      return <tr key={match.id} className={canSwap(match) && (target === match.id || selected === match.id) ? 'schedule-swap-active' : undefined}
+        onDragOver={event => {
+          if (dragged === null || dragged === match.id || !canSwap(match)) return
+          event.preventDefault()
+          event.dataTransfer.dropEffect = 'move'
+          setTarget(match.id)
+        }}
+        onDragLeave={event => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setTarget(value => value === match.id ? null : value)
+        }}
+        onDrop={event => {
+          if (dragged === null || !canSwap(match)) return
+          event.preventDefault()
+          swap?.(dragged, match.id)
+          stopDrag()
+        }}>
         <td className="muted mono">#{String(match.id).padStart(2, '0')}<small>Slot {match.slot}</small></td>
         <td className="mono time-cell">{clock(match.start)}<small>bis {clock(match.end)}</small></td>
         <td><span className="pair-names">{teamName(tournament, match.a)} <span>vs.</span> {teamName(tournament, match.b)}</span><small>{tournament.config.stages.find(stage => stage.id === match.stage)?.name} · {groupName(tournament, match)} · Runde {match.round}</small></td>
@@ -23,6 +46,24 @@ export function ScheduleTable({ tournament, matches, manage = false }: { tournam
         <td>{teamName(tournament, match.referee)}</td>
         <td><Status game={game}/>{score && <small>{score.a}:{score.b}</small>}</td>
         {manage && <td><Link className="icon-button minimal" to={`${adminPath(tournament.id)}/spiel/${match.id}`} aria-label={`Spiel ${match.id} verwalten`}><Pencil size={15}/></Link></td>}
+        {swap && <td>{canSwap(match) && <button type="button" className="icon-button minimal schedule-grip"
+          aria-label={selected !== null && selected !== match.id ? `Mit Spiel ${match.id} tauschen` : `Spiel ${match.id} zum Tausch auswählen`}
+          aria-pressed={selected === match.id}
+          draggable
+          onDragStart={event => {
+            event.dataTransfer.setData('text/plain', String(match.id))
+            event.dataTransfer.effectAllowed = 'move'
+            setSelected(null)
+            setDragged(match.id)
+          }}
+          onDragEnd={stopDrag}
+          onClick={() => {
+            if (selected === null) setSelected(match.id)
+            else {
+              if (selected !== match.id) swap(selected, match.id)
+              setSelected(null)
+            }
+          }}><GripVertical size={19}/></button>}</td>}
       </tr>
     })}
   </tbody></table></div> : <Empty title="Keine Begegnungen gefunden" description="Wähle einen anderen Filter."/>

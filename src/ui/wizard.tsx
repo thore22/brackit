@@ -7,6 +7,7 @@ import { emptyGame } from '../engine/game.ts'
 import { participantLabel, rank, type Group, type Named, type Pair, type Plan, type Stage, type Tiebreak, type TournamentConfig } from '../engine/model.ts'
 import { emptyTournament, volleyball } from '../engine/template.ts'
 import { placementStage } from '../engine/placement.ts'
+import { swapMatches } from '../engine/reorder.ts'
 import { adminPath, Heading, Notice, ordered } from './common.tsx'
 import { ScheduleTable } from './schedule.tsx'
 
@@ -48,11 +49,12 @@ export function Wizard({ existing, offline = false }: { existing?: Tournament; o
   const location = useLocation()
   const [config, setConfig] = useState<TournamentConfig>(() => structuredClone(existing?.config ?? location.state?.config ?? emptyTournament()))
   const [step, setStep] = useState(0)
-  const [plan, setPlan] = useState<Plan | null>(null)
+  const [plan, setPlan] = useState<Plan | null>(existing?.plan ?? null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState<{ id: string; revision: number } | null>(null)
+  const [saved, setSaved] = useState<{ id: string; revision: number; plan: Plan } | null>(
+    existing ? { id: existing.id, revision: existing.revision, plan: existing.plan } : null)
   const worker = useRef<Worker | null>(null)
   useEffect(() => () => worker.current?.terminate(), [])
   const placement = config.stages.find(stage => stage.placement)
@@ -68,7 +70,6 @@ export function Wizard({ existing, offline = false }: { existing?: Tournament; o
       return next
     })
     setPlan(null)
-    setSaved(null)
     setError('')
   }
   const updateStage = (id: string, values: Partial<Stage>) =>
@@ -99,16 +100,22 @@ export function Wizard({ existing, offline = false }: { existing?: Tournament; o
     setError(''); setSaving(true)
     try {
       let draft = saved
-      if (!draft) {
-        const id = await savePlan(existing?.id ?? null, existing?.revision ?? null, config, plan)
+      if (draft?.plan !== plan) {
+        const id = await savePlan(draft?.id ?? null, draft?.revision ?? null, config, plan)
         const { revision } = await readTournament(id, true)
-        draft = { id, revision }
+        draft = { id, revision, plan }
         setSaved(draft)
       }
       if (publish) await control(draft.id, draft.revision, 'publish')
       navigate(adminPath(draft.id))
     } catch (failure) { setError(errorText(failure)) }
     finally { setSaving(false) }
+  }
+  function swap(first: number, second: number) {
+    if (!plan || saving) return
+    setError('')
+    try { setPlan(swapMatches(config, plan, first, second)) }
+    catch (failure) { setError(errorText(failure)) }
   }
   function removeTeam(id: string) {
     patch({
@@ -237,7 +244,8 @@ export function Wizard({ existing, offline = false }: { existing?: Tournament; o
       {plan && <Notice tone="success">{plan.matches.length} Begegnungen · {new Set(plan.matches.map(match => match.slot)).size} Slots · {plan.carry.length} Ergebnisübernahmen. Der Spielplan ist konfliktfrei.</Notice>}
     </div>,
     plan && <div className="form-stack"><Notice tone="success">Der Spielplan enthält {plan.matches.length} Begegnungen. Rangplätze werden nach Bestätigung der Quellergebnisse aufgelöst.</Notice>
-      <div className="card"><ScheduleTable tournament={{ id: '', revision: 0, configurationVersion: 0, state: 'draft', released: 0, admin: true, config, plan, games: plan.matches.map(match => emptyGame(match.id)), serverNow: '', seeds: {} }} matches={ordered(plan.matches)}/></div>
+      <p className="hint">Ziehe ein Spiel am Griff auf ein anderes, um die Plätze zu tauschen. Alternativ wählst du beide Griffe nacheinander aus.{placement && ' Die Reihenfolge der Platzierungsspiele steht fest. Das Finale kommt zuletzt.'}</p>
+      <div className="card"><ScheduleTable tournament={{ id: '', revision: 0, configurationVersion: 0, state: 'draft', released: 0, admin: true, config, plan, games: plan.matches.map(match => emptyGame(match.id)), serverNow: '', seeds: {} }} matches={ordered(plan.matches)} swap={swap}/></div>
     </div>,
   ]
   return <>
@@ -249,7 +257,7 @@ export function Wizard({ existing, offline = false }: { existing?: Tournament; o
       </button>)}</aside>
       <section className="card wizard-card">
         <div className="card-heading"><div><p className="eyebrow">Schritt {step + 1} von {steps.length}</p><h2>{steps[step]}</h2></div><ClipboardList size={21}/></div>
-        <div className="card-body">{sections[step]}{error && <Notice>{error}</Notice>}</div>
+        <div className="card-body">{step === 9 && error && <Notice>{error}</Notice>}{sections[step]}{step !== 9 && error && <Notice>{error}</Notice>}</div>
         <div className="wizard-footer">
           <button className="button secondary" disabled={step === 0 || busy || saving} onClick={() => changeStep(step - 1)}><ArrowLeft size={17}/>Zurück</button>
           {step < 9 ? <button className="button primary" disabled={busy || (step === 8 && !plan)} onClick={() => changeStep(step + 1)}>Weiter<ArrowRight size={17}/></button> :

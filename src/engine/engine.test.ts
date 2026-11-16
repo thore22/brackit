@@ -5,6 +5,65 @@ import { keyOf, rank } from './model.ts'
 import { validateSchedule } from './validate.ts'
 import { calculateTable, tournamentTables } from './standings.ts'
 import { countdown, emptyGame, scheduledEpoch } from './game.ts'
+import { placementRank, placementStage } from './placement.ts'
+import { swapMatches } from './reorder.ts'
+
+describe('Platzierungsformat', () => {
+  it.each([1, 2, 3, 4])('mischt die Vorrundengruppen bei %i Spielfeldern und setzt das Finale zuletzt an', courtCount => {
+    const config = emptyTournament()
+    config.referee = 'none'
+    config.courts = Array.from({ length: courtCount }, (_, i) => ({ id: `feld-${i + 1}`, name: `Feld ${i + 1}` }))
+    const [source] = config.stages
+    config.stages.push(placementStage(source, 'platzierung'))
+    const { matches } = generate(config)
+    const groupPlay = matches.filter(match => match.stage === source.id)
+    const bySlot = Map.groupBy(groupPlay, match => match.slot)
+    for (const slot of bySlot.values()) {
+      const a = slot.filter(match => match.group === 'a').length
+      const b = slot.length - a
+      expect(Math.abs(a - b)).toBeLessThanOrEqual(1)
+      if (courtCount > 1) expect(a * b).toBeGreaterThan(0)
+    }
+    if (courtCount === 1) expect(groupPlay.map(match => match.group)).toEqual(Array.from({ length: 12 }, (_, i) => i % 2 ? 'b' : 'a'))
+    const finals = matches.filter(match => match.stage === 'platzierung')
+    expect(finals.map(placementRank)).toEqual([4, 3, 2, 1])
+    expect(new Set(finals.map(match => match.slot)).size).toBe(4)
+  })
+
+  it('tauscht zwei passende Gruppenspiele, behält das Original und schützt den Finalspielplan', () => {
+    const config = emptyTournament()
+    const [source] = config.stages
+    config.stages.push(placementStage(source, 'platzierung'))
+    const plan = generate(config)
+    const [first, second] = plan.matches.filter(match => match.group === 'a')
+    const swapped = swapMatches(config, plan, first.id, second.id)
+    expect(swapped.matches.find(match => match.id === first.id)).toMatchObject({ slot: second.slot, court: second.court, start: second.start })
+    expect(plan.matches.find(match => match.id === first.id)?.slot).toBe(first.slot)
+    expect(validateSchedule(config, swapped)).toEqual([])
+    const opposite = plan.matches.find(match => match.group === 'b' && match.slot !== first.slot)!
+    expect(() => swapMatches(config, plan, first.id, opposite.id)).toThrow(/ungleich verteilen/)
+    const finals = plan.matches.filter(match => match.stage === 'platzierung')
+    expect(() => swapMatches(config, plan, finals[0].id, finals[1].id)).toThrow(/Finale/)
+  })
+
+  it('lässt Felder frei, wenn beide Gruppen eigene spielfreie Pfeif-Teams stellen müssen', () => {
+    const config = emptyTournament()
+    config.referee = 'group'
+    config.courts.push({ id: 'feld-3', name: 'Feld 3' })
+    const [source] = config.stages
+    for (const group of source.groups) {
+      const id = `team-${group.id}-5`
+      config.teams.push({ id, name: id })
+      group.members.push(id)
+    }
+    config.stages.push(placementStage(source, 'platzierung'))
+    const plan = generate(config)
+    const slots = Map.groupBy(plan.matches.filter(match => match.stage === source.id), match => match.slot)
+    expect(slots.size).toBe(10)
+    for (const slot of slots.values()) expect(slot.map(match => match.group)).toEqual(['a', 'b'])
+    expect(validateSchedule(config, plan)).toEqual([])
+  })
+})
 
 describe('Volleyballvorlage', () => {
   const config = volleyball('2027-06-12')

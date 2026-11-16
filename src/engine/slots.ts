@@ -5,9 +5,13 @@ type Assignment = { pair: ScheduledPair; court: string; referee: string | null }
 
 export function pack(
   pairs: ScheduledPair[], config: TournamentConfig, limit: number, budget: SearchBudget, usage: Map<string, number>,
+  mixedGroups?: readonly [string, string],
 ): Assignment[][] | null {
   const courts = config.courts
-  const capacity = courts.length
+  const capacity = !mixedGroups || config.referee === 'none' ? courts.length : Math.min(courts.length, Math.max(1,
+    config.referee === 'group' ? config.stages[0].groups.reduce((sum, group) => sum + Math.floor(group.members.length / 3), 0) :
+      Math.floor(config.teams.length / 3),
+  ))
   const slots: Assignment[][] = []
   const needsRef = config.referee !== 'none'
   const left = [...pairs]
@@ -32,7 +36,7 @@ export function pack(
         .sort((a, b) => (usage.get(a) ?? 0) - (usage.get(b) ?? 0)) : [null]
       const court = [...courts].filter(field => !fields.has(field.id))
         .sort((a, b) => {
-          const preferred = pair.lane === undefined ? undefined : courts[pair.lane % capacity]?.id
+          const preferred = pair.lane === undefined ? undefined : courts[pair.lane % courts.length]?.id
           const aLoad = (laneUse.get(keyOf(pair.a, a.id)) ?? 0) + (laneUse.get(keyOf(pair.b, a.id)) ?? 0)
           const bLoad = (laneUse.get(keyOf(pair.a, b.id)) ?? 0) + (laneUse.get(keyOf(pair.b, b.id)) ?? 0)
           return Number(b.id === preferred) - Number(a.id === preferred) || aLoad - bLoad
@@ -59,7 +63,10 @@ export function pack(
     if (!open || remaining.length > open * capacity) return false
     const previous = new Set(slots.at(-1)?.flatMap(({ pair }) => [pair.a, pair.b]) ?? [])
     const consecutive = (pair: ScheduledPair) => Number(previous.has(pair.a)) + Number(previous.has(pair.b))
-    const ordered = [...remaining].sort((a, b) => consecutive(a) - consecutive(b))
+    const groupLoads = mixedGroups?.map(group => remaining.filter(pair => pair.group === group).length)
+    const preferred = mixedGroups && groupLoads ? mixedGroups[groupLoads[1] > groupLoads[0] ? 1 : 0] : undefined
+    const ordered = [...remaining].sort((a, b) =>
+      (preferred ? Number(b.group === preferred) - Number(a.group === preferred) : 0) || consecutive(a) - consecutive(b))
     const first = ordered[0]
     const batch = [first]
     const minSize = Math.max(1, remaining.length - (open - 1) * capacity)
@@ -85,13 +92,15 @@ export function pack(
       for (let i = start; i <= ordered.length - (size - batch.length); i++) {
         const pair = ordered[i]
         if (batch.some(other => same(pair, other))) continue
+        if (mixedGroups && batch.filter(other => other.group === pair.group).length >= Math.ceil(size / 2)) continue
         batch.push(pair)
         if (legal(batch) && fill(i + 1, size)) return true
         batch.pop()
       }
       return false
     }
-    for (let size = Math.min(capacity, remaining.length); size >= minSize; size--) {
+    const paired = mixedGroups && capacity >= 2 && ordered.some(pair => pair.group !== first.group && assign([first, pair]))
+    for (let size = Math.min(capacity, remaining.length); size >= Math.max(minSize, paired ? 2 : 1); size--) {
       if (fill(1, size)) return true
     }
     return false
