@@ -66,8 +66,8 @@ export function calculateTable(teams: string[], games: Game[], rules: Tournament
   return order(entries, 0)
 }
 
-export function tournamentTables(config: TournamentConfig, plan: Plan, scores: Map<number, Score>) {
-  const seeds = new Map<string, string>()
+export function tournamentTables(config: TournamentConfig, plan: Plan, scores: Map<number, Score>, lockedSeeds: Record<string, string> = {}) {
+  const seeds = new Map(Object.entries(lockedSeeds))
   const tables = new Map<string, { group: Group; rows: Row[]; complete: boolean }>()
   const resolve = (member: string) => seeds.get(member) ?? member
   const settled = (member: string) => !resolve(member).startsWith('@')
@@ -90,7 +90,10 @@ export function tournamentTables(config: TournamentConfig, plan: Plan, scores: M
       }
       const rows = calculateTable(group.members.map(resolve), games, config.rules, group.id)
       const complete = group.members.every(settled) && own.length > 0 && own.every(match => scores.has(match.id)) && used === imports.length
-      if (complete) rows.forEach((row, index) => seeds.set(rank(group.id, index + 1), row.team))
+      if (complete) rows.forEach((row, index) => {
+        const seed = rank(group.id, index + 1)
+        seeds.set(seed, lockedSeeds[seed] ?? row.team)
+      })
       tables.set(group.id, { group, rows, complete })
     }
   }

@@ -159,7 +159,7 @@ export function TableGrid({ tournament, phase, compact = false, page }: { tourna
   const stage = tournament.config.stages.find(stage => stage.id === phase)
   if (stage?.placement) return <PlacementTable tournament={tournament} stage={stage} page={page}/>
   const results = new Map(tournament.games.flatMap(game => game.official ? [[game.id, game.official]] : []))
-  const { tables } = tournamentTables(tournament.config, tournament.plan, results)
+  const { tables } = tournamentTables(tournament.config, tournament.plan, results, tournament.seeds)
   const panels = tablePanels(stage, page !== undefined)
   return <div className={`table-grid ${compact ? 'compact' : ''}`}>
     {(page === undefined ? panels : panels.slice(page * 4, page * 4 + 4)).map(({ group, offset }) => {
