@@ -66,7 +66,9 @@ where id = 'DEINE-BRACKIT-BENUTZER-UUID'::uuid
 on conflict (user_id) do update set decision = 'approved', is_reviewer = true;
 ```
 
-Danach erscheinen Registrierungen bei dir unter **Meine Turniere → Kontoanträge**. Neue Organisatoren sehen nach der Registrierung **Freigabe ausstehend**. Sobald du das Konto freigibst, können sie eigene Turniere verwalten. Der Schiedsrichterzugang per PIN verwendet weiterhin separate Spielberechtigungen.
+Danach erscheinen Registrierungen bei dir unter **Meine Turniere → Kontoanträge**. Neue Organisatoren sehen nach der Registrierung **Freigabe ausstehend**. Mit der Migration `202611160002_shared_organizers.sql` können alle freigegebenen Organisatoren sämtliche Turniere der Brackit-Instanz verwalten. Nur das Konto mit Prüfrecht entscheidet über Anträge und kann Verwaltungszugänge entziehen.
+
+Ergebniskorrekturen sind auch nach der Archivierung möglich. Ändert eine Korrektur die Qualifikation für eine bereits begonnene Folgephase, kann die Turnierleitung den korrigierten Spielstand mit den ursprünglichen Paarungen speichern. Der Verlauf protokolliert das bearbeitende Konto und beide Spielstände.
 
 ### Deployment und PWA
 

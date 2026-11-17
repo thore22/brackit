@@ -357,7 +357,7 @@ function TournamentList({ canReview }: { canReview: boolean }) {
     return () => { current = false }
   }, [])
   return <>
-    <Heading eyebrow="Verwaltung" title="Meine Turniere" subtitle="Öffne deine Turniere oder lege ein neues Format an."
+    <Heading eyebrow="Verwaltung" title="Meine Turniere" subtitle="Öffne ein Turnier zur gemeinsamen Verwaltung oder lege ein neues Format an."
       actions={<Link className="button primary" to="/neu"><Plus size={18}/>Neues Turnier</Link>}/>
     {canReview && <OrganizerRequests/>}
     {!connected && <Notice tone="info">Der lokale Arbeitsplatz speichert Daten in diesem Browser. Verbinde Supabase, um Turniere geräteübergreifend zu betreiben.</Notice>}

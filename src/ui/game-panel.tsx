@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { ArrowLeft, Check, Flag, Pause, Pencil, Play, Plus, RotateCcw, Save, Send, TriangleAlert } from 'lucide-react'
 import { Link } from 'react-router'
 import { errorText, gameAction, moveMatch } from '../data/client.ts'
-import { final, type GameAction, type GameCommand, type Tournament } from '../data/types.ts'
+import { final, qualificationCorrectionWarning, type GameAction, type GameCommand, type Tournament } from '../data/types.ts'
 import { countdown, formatDuration, type GameState } from '../engine/game.ts'
 import { clock, type Match } from '../engine/model.ts'
 import type { Score } from '../engine/standings.ts'
@@ -18,12 +18,15 @@ export function GamePanel({ tournament, match, offline, offset, refresh, admin, 
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [correction, setCorrection] = useState(false)
+  const [fixtureDecision, setFixtureDecision] = useState<{ score: Score; version: number }>()
   const retry = useRef<{ fingerprint: string; request: string } | null>(null)
   const unlocked = tournament.state === 'published' && tournament.config.stages.findIndex(stage => stage.id === match.stage) <= tournament.released
+  const canCorrect = admin && ((unlocked && state.status === 'submitted') || ((unlocked || tournament.state === 'archived') && final(state)))
   const delay = delayMinutes(tournament, match, now)
   async function apply(action: GameAction, score?: Score, version = state.version) {
     setBusy(true)
     setMessage('')
+    setFixtureDecision(undefined)
     const fingerprint = JSON.stringify([match.id, action, version, score])
     const request = retry.current?.fingerprint === fingerprint ? retry.current.request : crypto.randomUUID()
     retry.current = { fingerprint, request }
@@ -32,10 +35,11 @@ export function GamePanel({ tournament, match, offline, offset, refresh, admin, 
       await gameAction(tournament.id, command, admin)
       retry.current = null
       await refresh()
-      if (action === 'correct') setCorrection(false)
+      if (action === 'correct' || action === 'correct_keep_fixtures') setCorrection(false)
       return true
     } catch (error) {
       setMessage(errorText(error))
+      if (action === 'correct' && score && errorText(error) === qualificationCorrectionWarning) setFixtureDecision({ score, version })
       await refresh()
       return false
     } finally { setBusy(false) }
@@ -67,10 +71,18 @@ export function GamePanel({ tournament, match, offline, offset, refresh, admin, 
             {button('confirm', 'Ergebnis bestätigen', Check, 'primary')}
             {button('reject', 'Ergebnis zurückweisen', RotateCcw)}
           </>}
-          {(state.status === 'submitted' || final(state)) && <button className="button secondary" disabled={disabled} onClick={() => setCorrection(!correction)}><Pencil size={17}/>{correction ? 'Korrektur schließen' : 'Ergebnis korrigieren'}</button>}
         </div>}
+        {canCorrect && <div className="button-row no-print"><button className="button secondary" disabled={disabled} onClick={() => {
+          setCorrection(!correction); setFixtureDecision(undefined); setMessage('')
+        }}><Pencil size={17}/>{correction ? 'Korrektur schließen' : 'Ergebnis korrigieren'}</button></div>}
         {!unlocked && <Notice tone="info">{tournament.state === 'archived' ? 'Dieses Turnier ist archiviert.' : 'Das Spiel ist noch nicht zur Eingabe freigegeben.'}</Notice>}
-        {access && unlocked && (state.status === 'running' || correction) && <ScoreForm key={String(correction)} tournament={tournament} match={match} state={state} correction={correction} offline={offline} busy={busy} apply={apply}/>}
+        {access && ((unlocked && state.status === 'running') || (canCorrect && correction)) && <ScoreForm key={String(correction)} tournament={tournament} match={match} state={state} correction={correction} offline={offline} busy={busy} apply={apply}/>}
+        {canCorrect && correction && fixtureDecision && <div className="button-row no-print">
+          <button className="button primary" disabled={disabled || fixtureDecision.version !== state.version} onClick={() =>
+            void apply('correct_keep_fixtures', fixtureDecision.score, fixtureDecision.version)
+          }>{fixtureDecision.score.a}:{fixtureDecision.score.b} speichern und Paarungen beibehalten</button>
+          <button className="button secondary" disabled={disabled} onClick={() => { setFixtureDecision(undefined); setMessage('') }}>Abbrechen</button>
+        </div>}
         {!admin && state.status === 'submitted' && <Notice tone="success">Ergebnis eingereicht. Die Turnierleitung prüft die Freigabe.</Notice>}
         {!admin && final(state) && <Notice tone="success">Das offizielle Ergebnis ist bestätigt.</Notice>}
         {!admin && access && unlocked && state.status === 'scheduled' && <Notice tone="info">Die Turnierleitung startet das Spiel. Die Eingabe wird dann automatisch freigeschaltet.</Notice>}

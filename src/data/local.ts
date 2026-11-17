@@ -5,12 +5,12 @@ import { volleyball } from '../engine/template.ts'
 import type { Match, Plan, TournamentConfig } from '../engine/model.ts'
 import { validateSchedule } from '../engine/validate.ts'
 import type { TournamentColors } from './types.ts'
-import { final, type AuditEntry, type ControlAction, type CourtActivation, type CourtStation, type GameCommand, type Invitation, type Tournament, type TournamentSummary } from './types.ts'
+import { final, qualificationCorrectionWarning, type AuditEntry, type ControlAction, type CourtActivation, type CourtStation, type GameCommand, type Invitation, type Tournament, type TournamentSummary } from './types.ts'
 
 const prefix = 'turnierleitung.local.'
 export const demoId = 'volleyball-cup'
 const key = (id: string) => prefix + id
-type RecordData = { tournament: Tournament; audit: AuditEntry[]; requests: Record<string, string>; invitations: Record<number, Invitation>; access: Record<number, string> }
+type RecordData = { tournament: Tournament; audit: AuditEntry[]; requests: Record<string, string>; invitations: Record<number, Invitation>; access: Record<number, string>; lockedSeeds?: Record<string, string> }
 type LocalCourtStation = CourtStation & { pin: string; generation: string; failures: number; blockedUntil: number }
 const stationsKey = 'turnierleitung.court-stations'
 const courtStations = (): LocalCourtStation[] => JSON.parse(localStorage.getItem(stationsKey) ?? '[]')
@@ -236,8 +236,9 @@ export function localGame(id: string, command: GameCommand, admin: boolean) {
   return change(id, record => {
     const { tournament } = record
     const { game: number, version, action, score, request } = command
+    const correction = action === 'correct' || action === 'correct_keep_fixtures'
     if (!admin && (!['live', 'submit'].includes(action) || !localCanReport(id, number))) throw new Error('Kein gültiger Schreibzugang für dieses Spiel.')
-    if (tournament.state !== 'published') throw new Error('Das Turnier ist für Eingaben geschlossen.')
+    if (tournament.state !== 'published' && !(tournament.state === 'archived' && correction)) throw new Error('Das Turnier ist für Eingaben geschlossen.')
     const game = tournament.games.find(game => game.id === number)
     const match = tournament.plan.matches.find(match => match.id === number)
     if (!game || !match) throw new Error('Spiel nicht gefunden.')
@@ -248,8 +249,8 @@ export function localGame(id: string, command: GameCommand, admin: boolean) {
     const stageIndex = tournament.config.stages.findIndex(stage => stage.id === match.stage)
     if (stageIndex > tournament.released) throw new Error('Diese Phase wurde noch nicht freigegeben.')
     const { rules } = tournament.config
-    if (['live', 'submit', 'correct'].includes(action) && (!score || Object.values(score).some(value => !Number.isInteger(value) || value < 0 || value > 999))) throw new Error('Gib je Team eine ganze Punktzahl zwischen 0 und 999 ein.')
-    if (score && ['submit', 'correct'].includes(action) && !rules.allowDraw && score.a === score.b) throw new Error('Bei Gleichstand entscheidet der nächste Punkt.')
+    if ((action === 'live' || action === 'submit' || correction) && (!score || Object.values(score).some(value => !Number.isInteger(value) || value < 0 || value > 999))) throw new Error('Gib je Team eine ganze Punktzahl zwischen 0 und 999 ein.')
+    if (score && (action === 'submit' || correction) && !rules.allowDraw && score.a === score.b) throw new Error('Bei Gleichstand entscheidet der nächste Punkt.')
     const now = new Date().toISOString()
     const resolve = (seed: string | null) => seed ? tournament.seeds[seed] ?? seed : null
     const people = (match: Match) => [match.a, match.b, match.referee].map(resolve).filter(Boolean)
@@ -288,14 +289,28 @@ export function localGame(id: string, command: GameCommand, admin: boolean) {
       if (tournament.games.some(state => state.status === 'running')) throw new Error('Beende die laufenden Spiele, bevor ein Ergebnis zur Neueingabe geöffnet wird.')
       game.status = 'running'
       game.ended = null
-    } else if (action === 'correct' && ['submitted', 'confirmed', 'corrected'].includes(game.status) && score) {
-      if (tournament.plan.matches.some(other => tournament.config.stages.findIndex(stage => stage.id === other.stage) > stageIndex &&
-        tournament.games.some(state => state.id === other.id && state.started))) throw new Error('Ein Ergebnis einer früheren Phase ist nach Beginn einer Folgephase gesperrt.')
+    } else if (correction && ['submitted', 'confirmed', 'corrected'].includes(game.status) && score) {
       Object.assign(game, { status: 'corrected', live: score, official: score })
     } else throw new Error('Diese Aktion ist im aktuellen Spielstatus nicht verfügbar.')
     game.version++
     record.requests[request] = fingerprint
-    tournament.seeds = Object.fromEntries(tournamentTables(tournament.config, tournament.plan, new Map(tournament.games.flatMap(state => state.official ? [[state.id, state.official]] : []))).seeds)
+    const scores = new Map(tournament.games.flatMap(state => state.official ? [[state.id, state.official]] : []))
+    const calculateSeeds = () => tournamentTables(tournament.config, tournament.plan, scores, record.lockedSeeds).seeds
+    let seeds = calculateSeeds()
+    if (correction) {
+      const started = new Set(tournament.games.filter(state => state.started).map(state => state.id))
+      const cutoff = tournament.config.stages.findLastIndex(stage => tournament.plan.matches.some(match => match.stage === stage.id && started.has(match.id)))
+      if (cutoff > stageIndex) {
+        const groups = new Set(tournament.config.stages.slice(0, cutoff).flatMap(stage => stage.groups.map(group => group.id)))
+        const protectedSeeds = Object.entries(tournament.seeds).filter(([seed]) => groups.has(seed.slice(1, seed.lastIndexOf('/'))))
+        if (protectedSeeds.some(([seed, team]) => seeds.get(seed) !== team)) {
+          if (action !== 'correct_keep_fixtures') throw new Error(qualificationCorrectionWarning)
+          record.lockedSeeds = { ...record.lockedSeeds, ...Object.fromEntries(protectedSeeds) }
+          seeds = calculateSeeds()
+        }
+      }
+    }
+    tournament.seeds = Object.fromEntries(seeds)
     append(record, action, number, { before, after: game.live })
   })
 }

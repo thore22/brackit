@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { errorText, organizerStatus, pendingOrganizers, reviewOrganizer, type OrganizerRequest, type OrganizerStatus } from '../data/client.ts'
+import { activeOrganizers, errorText, organizerStatus, pendingOrganizers, reviewOrganizer, revokeOrganizer, type OrganizerRequest, type OrganizerStatus } from '../data/client.ts'
 import { Notice } from './common.tsx'
 
 export function useOrganizerAccess(userId?: string) {
@@ -22,6 +22,7 @@ export function useOrganizerAccess(userId?: string) {
 
 export function OrganizerRequests() {
   const [requests, setRequests] = useState<OrganizerRequest[]>()
+  const [active, setActive] = useState<OrganizerRequest[]>()
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState('')
   const [message, setMessage] = useState('')
@@ -30,6 +31,10 @@ export function OrganizerRequests() {
     let current = true
     pendingOrganizers().then(
       items => { if (current) setRequests(items) },
+      error => { if (current) setFailure(errorText(error)) },
+    )
+    activeOrganizers().then(
+      items => { if (current) setActive(items) },
       error => { if (current) setFailure(errorText(error)) },
     )
     return () => { current = false }
@@ -42,7 +47,24 @@ export function OrganizerRequests() {
     try {
       await reviewOrganizer(id, decision)
       setRequests(items => items?.filter(item => item.id !== id))
+      if (decision === 'approved') setRefresh(value => value + 1)
       setMessage(decision === 'approved' ? 'Konto freigegeben.' : 'Antrag abgelehnt.')
+    } catch (error) {
+      setFailure(errorText(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function revoke(account: OrganizerRequest) {
+    if (!window.confirm(`Verwaltungszugang für ${account.email} entziehen?`)) return
+    setBusy(true)
+    setFailure('')
+    setMessage('')
+    try {
+      await revokeOrganizer(account.id)
+      setActive(items => items?.filter(item => item.id !== account.id))
+      setMessage('Verwaltungszugang entzogen.')
     } catch (error) {
       setFailure(errorText(error))
     } finally {
@@ -67,6 +89,12 @@ export function OrganizerRequests() {
           <button className="button primary" disabled={busy} onClick={() => void decide(request.id, 'approved')}>Freigeben</button>
           <button className="button secondary" disabled={busy} onClick={() => void decide(request.id, 'rejected')}>Ablehnen</button>
         </div>
+      </div>)}
+      <h3>Freigegebene Organisatoren</h3>
+      {active?.length === 0 && <p>Keine weiteren Organisatoren freigegeben.</p>}
+      {active?.map(account => <div className="form-box" key={account.id}>
+        <strong>{account.email}</strong>
+        <div><button className="button secondary" disabled={busy} onClick={() => void revoke(account)}>Zugang entziehen</button></div>
       </div>)}
     </div>
   </section>

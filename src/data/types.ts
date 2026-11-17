@@ -11,7 +11,8 @@ export interface Tournament {
   colors?: TournamentColors | null
 }
 export interface TournamentSummary { id: string; name: string; date: string; state: TournamentStatus }
-export type GameAction = 'start' | 'pause' | 'resume' | 'regular' | 'live' | 'submit' | 'confirm' | 'reject' | 'correct'
+export type GameAction = 'start' | 'pause' | 'resume' | 'regular' | 'live' | 'submit' | 'confirm' | 'reject' | 'correct' | 'correct_keep_fixtures'
+export const qualificationCorrectionWarning = 'Die Korrektur ändert die Qualifikation einer begonnenen Folgephase. Bestätige die Korrektur mit unveränderten Paarungen.'
 export type ControlAction = 'publish' | 'release' | 'archive'
 export interface GameCommand { game: number; version: number; request: string; action: GameAction; score?: Score }
 export interface Invitation { token: string; pin: string; expires: string }
@@ -21,5 +22,5 @@ export interface CourtStation {
   id: string; name: string; assignment: CourtAssignment | null; tournamentName: string | null; expires: string | null
 }
 export interface CourtActivation { id: string; pin: string; expires: string }
-export interface AuditEntry { action: string; match_id: number | null; created_at: string; payload: Record<string, unknown> }
+export interface AuditEntry { action: string; match_id: number | null; actor?: string | null; created_at: string; payload: Record<string, unknown> }
 export const final = (game: GameState) => game.status === 'confirmed' || game.status === 'corrected'

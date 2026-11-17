@@ -45,6 +45,8 @@ export type OrganizerStatus = { state: 'approved' | 'pending' | 'rejected'; revi
 export type OrganizerRequest = { id: string; email: string; createdAt: string }
 export const organizerStatus = () => rpc<OrganizerStatus>('cup_organizer_status')
 export const pendingOrganizers = () => rpc<OrganizerRequest[]>('cup_pending_organizers')
+export const activeOrganizers = () => rpc<OrganizerRequest[]>('cup_active_organizers')
+export const revokeOrganizer = (applicant: string) => rpc('cup_revoke_organizer', { applicant })
 export const reviewOrganizer = (applicant: string, decision: 'approved' | 'rejected') =>
   rpc('cup_review_organizer', { applicant, decision })
 

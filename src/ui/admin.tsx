@@ -185,7 +185,7 @@ export function SettingsPage({ tournament, offline, refresh }: { tournament: Tou
     {message && <Notice>{message}</Notice>}
     <section className="card"><div className="card-heading"><div><h2>Änderungsprotokoll</h2><p>Letzte 100 Aktionen</p></div></div>
       {entries?.length ? <div className="table-scroll"><table><thead><tr><th>Zeitpunkt</th><th>Aktion</th><th>Spiel</th><th>Details</th></tr></thead>
-        <tbody>{entries.map((item, index) => <tr key={index}><td>{new Date(item.created_at).toLocaleString('de-DE', { timeZone: config.timezone })}</td><td>{auditNames[item.action] ?? item.action}</td><td>{item.match_id ?? '—'}</td><td>{Object.keys(item.payload).length ? <details><summary>Ansehen</summary><pre>{JSON.stringify(item.payload, null, 2)}</pre></details> : '—'}</td></tr>)}</tbody>
+        <tbody>{entries.map((item, index) => <tr key={index}><td>{new Date(item.created_at).toLocaleString('de-DE', { timeZone: config.timezone })}</td><td>{auditNames[item.action] ?? item.action}</td><td>{item.match_id ?? '—'}</td><td>{item.actor || Object.keys(item.payload).length ? <details><summary>Ansehen</summary>{item.actor && <p>Konto-ID <code>{item.actor}</code></p>}<pre>{JSON.stringify(item.payload, null, 2)}</pre></details> : '—'}</td></tr>)}</tbody>
       </table></div> : <Empty title={entries ? 'Noch keine Aktionen' : 'Protokoll wird geladen'}/>}
     </section>
   </>
@@ -195,6 +195,6 @@ const auditNames: Record<string, string> = {
   plan: 'Spielplan gespeichert', publish: 'Turnier veröffentlicht', release: 'Phase freigegeben', archive: 'Archiviert',
   start: 'Spiel gestartet', pause: 'Pausiert', resume: 'Fortgesetzt', regular: 'Reguläre Spielzeit beendet',
   live: 'Live-Stand geändert', submit: 'Ergebnis eingereicht', confirm: 'Bestätigt', reject: 'Zurückgewiesen',
-  correct: 'Korrigiert', referee_invite: 'QR-Zugang erstellt', referee_redeem: 'Schiedsrichterzugang aktiviert',
+  correct: 'Korrigiert', correct_keep_fixtures: 'Korrigiert, Paarungen beibehalten', referee_invite: 'QR-Zugang erstellt', referee_redeem: 'Schiedsrichterzugang aktiviert',
   court_activate: 'Feld-QR aktiviert', court_redeem: 'Feld-Zugang freigeschaltet', move: 'Spielplan geändert',
 }
